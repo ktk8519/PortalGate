@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snowy Path Gateway</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #ui-container {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            display: grid;
+            place-items: center;
+        }
+
+        button {
+            grid-area: 1 / 1;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 30px;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 8px;
+            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            outline: none;
+            opacity: 1;
+        }
+
+        #openBtn {
+            color: #FFFFFF;
+            border-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+        }
+
+        #closeBtn {
+            color: #bc2e2e;
+            border-color: rgba(188, 46, 46, 0.4);
+            box-shadow: 0 0 10px rgba(188, 46, 46, 0.1);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+    </style>
+    <!-- Import Maps for Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+    <!-- GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+</head>
+
+<body>
+    <div id="canvas-container"></div>
+    <div id="ui-container">
+        <button id="openBtn">Open</button>
+        <button id="closeBtn">Close</button>
+    </div>
+
+    <!-- Hidden Video Element -->
+    <video id="video-source" src="./video_snowy.mp4" loop muted playsinline 
+       style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
+    </video>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- Scene & Camera Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        // Use standard SRGB output for best color correctness with the video
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        // --- Video Texture Setup ---
+        const video = document.getElementById('video-source');
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.colorSpace = THREE.SRGBColorSpace;
+        videoTexture.minFilter = THREE.LinearFilter;
+        videoTexture.magFilter = THREE.LinearFilter;
+
+        // --- Uniforms ---
+        const uniforms = {
+            iTime: { value: 0 },
+            iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1) },
+            iMouse: { value: new THREE.Vector4() },
+            u_openProgress: { value: 0.0 },
+            uVideoTexture: { value: videoTexture },
+            uVideoRatio: { value: 0.75 }
+        };
+
+        // --- Fragment Shader ---
+        const fragmentShader = `
+            uniform vec3 iResolution;
+            uniform float iTime;
+            uniform vec4 iMouse;
+            uniform float u_openProgress;
+            uniform sampler2D uVideoTexture;
+            uniform float uVideoRatio;
+
+            // --- Helper Functions ---
+            float pi = 3.14159265;
+            vec3 triwave(vec3 x) {
+                return abs(fract(.5*x/pi-.25)-.5)*4.-1.;
+            }
+
+            // --- Main Function ---
+            void main() {
+                // --- 1. Global Texture Sampling (Strictly First) ---
+                // Calculate normalized screen coordinates
+                vec2 fragCoord = gl_FragCoord.xy;
+                vec2 r = iResolution.xy;
+                vec2 screenUV = fragCoord.xy / r.xy;
+                
+                // Calculate Video UVs (Centering logic)
+                float screenRatio = r.x / r.y;
+                vec2 videoUV = vec2((screenUV.x - 0.5) * (screenRatio / uVideoRatio) + 0.5, screenUV.y);
+                
+                // Sample texture IMMEDIATELY (Global scope, no branching)
+                // This prevents "Gradient Error" where the GPU cannot calculate derivatives inside an IF block.
+                vec4 bgVideo = texture2D(uVideoTexture, videoUV);
+                
+                // Manually clamp to black if outside the video aspect ratio box
+                // (We do this AFTER sampling to keep the sample instruction global)
+                if(videoUV.x < 0.0 || videoUV.x > 1.0) bgVideo = vec4(0.0);
+                
+                // Slight cosmetic boost (optional)
+                bgVideo *= 1.2;
+
+                // --- 2. Render Particles (Raymarching) ---
+                vec4 o = vec4(0.0);
+                vec3 P = vec3(0,2.3,2.5);
+                float h = 1.;
+                float transmission = 1.;
+                float t = iTime, d, i, z = 0.;
+                float focal = 1.4;
+                
+                // Camera Setup
+                vec2 uv = (fragCoord.xy*2.-r) / r.y;
+                vec3 cam_pos = vec3(0, 1.5, 10.);
+                vec3 rd = normalize(vec3(uv, -focal));
+                {
+                    float time = iTime*.25;
+                    cam_pos += vec3(1.5*cos(time), 0, 2.*sin(time));
+                    float angle = cos(time)*.25;
+                    float c = cos(angle), s = sin(angle);
+                    rd.xz *= mat2(c,s,-s,c);  
+                }
+
+                vec3 P2 = vec3(0, -2.*h-2.3, 2.5);
+                float radius = u_openProgress * 3.0; 
+                float D, D2;
+                vec3 p;
+                
+                // Raymarching Loop
+                for(i = 0.; i++<65. && z < 1e3; o += transmission * (
+                        // Background: Procedural Waves
+                        (cos(d/.1+vec4(1,2,2.5,0))+1.)/d*z
+                    ) + 2.*(cos(-4.5*iTime+D/.1+vec4(1,2,2.5,0))+1.)*exp2(-D*D)*z + 10.*(cos(vec4(1,2,2.5,0))+1.)*exp2(-abs(D2))*z) {
+                  
+                  p = z*rd + cam_pos;
+                  D = length(p-P)-radius;
+                  D2 = length((p-vec3(P.x,-h,P.z))*vec3(1.5,10.,1.5))-radius;
+                  if(p.y < -h) {
+                    p.y= abs(p.y+h)-h;
+                    float F0 = 0.15;
+                    transmission = .8 * (F0 + (1.-F0)*pow(clamp(1.+rd.y,0.,1.), 5.));
+                  } else { transmission = 1.; }
+                  p.y += .8*sin(p.z*2. + iTime*2. - d*12.)*.3;
+                  float T = 2.5*t-d*14.;
+                  float c = cos(T), s = sin(T);
+                  vec3 q = p-P;
+                  q.xy *= mat2(c,s,-s,c);
+                  for(d=1.;d++<9.;) q += triwave((q*d+t*2.)).yzx/d;
+                  d = .1*abs(length(p-P)-radius-p.z*.0) + abs(q.z)*.1;
+                  z += min(abs(p.y+h)*.4+.03, d);
+                }
+
+                // --- 3. Tone Mapping (Particles ONLY) ---
+                // We tone map 'o' BEFORE adding the video.
+                o = o/1e4;
+                o *= 1.-length(uv)*.2;
+                o = sqrt(1.-exp(-1.5*o*o));
+                
+                // --- 4. Late Composition (Applying the Video) ---
+                // Calculate portal mask based on geometry
+                float mask = 0.0;
+                vec3 portalCenter = vec3(0, 2.3, 2.5); 
+                float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
+                
+                if (planeDist > 0.0) {
+                    vec3 hitPos = cam_pos + rd * planeDist;
+                    float distFromCenter = length(hitPos.xy - portalCenter.xy);
+                    // 1.0 inside, 0.0 outside
+                    mask = smoothstep(radius, radius - 0.2, distFromCenter);
+                }
+                
+                // Combine: Tone-Mapped Particles + (Video * Mask)
+                gl_FragColor = o + (bgVideo * mask);
+            }
+        `;
+
+        // --- Material & Mesh ---
+        const material = new THREE.ShaderMaterial({
+            uniforms: uniforms,
+            fragmentShader: fragmentShader,
+            vertexShader: `
+                void main() {
+                    gl_Position = vec4( position, 1.0 );
+                }
+            `
+        });
+
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(plane);
+
+        // --- Event Handling ---
+
+        // Resize
+        window.addEventListener('resize', () => {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            renderer.setSize(width, height);
+            uniforms.iResolution.value.set(width, height, 1);
+        });
+
+        // Interactive Buttons via GSAP
+        const openBtn = document.getElementById('openBtn');
+        const closeBtn = document.getElementById('closeBtn');
+
+        openBtn.addEventListener('click', () => {
+            // 1. Immediately hide Open button
+            gsap.to(openBtn, {
+                opacity: 0,
+                duration: 0.3,
+                onComplete: () => { openBtn.style.pointerEvents = 'none'; }
+            });
+
+            // 2. Play Video & Animate Portal Opening
+            video.play().catch(e => console.warn("Video play blocked:", e));
+
+            gsap.to(uniforms.u_openProgress, {
+                value: 1.0,
+                duration: 2.0,
+                ease: "power2.out",
+                // 3. Show Close button ONLY after portal is fully open
+                onComplete: () => {
+                    closeBtn.style.pointerEvents = 'auto';
+                    gsap.to(closeBtn, {
+                        opacity: 1,
+                        duration: 0.5
+                    });
+                }
+            });
+        });
+
+        closeBtn.addEventListener('click', () => {
+            // 1. Immediately hide Close button
+            gsap.to(closeBtn, {
+                opacity: 0,
+                duration: 0.3,
+                onComplete: () => { closeBtn.style.pointerEvents = 'none'; }
+            });
+
+            // 2. Animate Portal Closing
+            gsap.to(uniforms.u_openProgress, {
+                value: 0.0,
+                duration: 1.5,
+                ease: "power2.out",
+                // 3. Show Open button ONLY after portal is fully closed
+                onComplete: () => {
+                    openBtn.style.pointerEvents = 'auto';
+                    gsap.to(openBtn, {
+                        opacity: 1,
+                        duration: 0.5
+                    });
+                    video.pause();
+                }
+            });
+        });
+
+        // --- Animation Loop ---
+        function animate(time) {
+            requestAnimationFrame(animate);
+            if (video.readyState >= video.HAVE_CURRENT_DATA) {
+                videoTexture.needsUpdate = true;
+            }
+            uniforms.iTime.value = time * 0.001;
+            renderer.render(scene, camera);
+        }
+
+        animate(0);
+
+    </script>
+</body>
+
+</html>
