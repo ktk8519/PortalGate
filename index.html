@@ -3,18 +3,20 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Gateway - Interactive</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Snowy Path Gateway - Mobile Interactive</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background: #000;
+            touch-action: none; /* 모바일에서 스크롤 방지 (드래그 전용) */
         }
 
         #canvas-container {
             width: 100vw;
-            height: 100vh;
+            height: 100vh; /* 모바일 브라우저 높이 이슈 대응 필요시 dvh 사용 권장 */
+            height: 100dvh; 
             position: absolute;
             top: 0;
             left: 0;
@@ -23,28 +25,31 @@
 
         #ui-container {
             position: absolute;
-            bottom: 30px;
+            bottom: 50px; /* 모바일 손가락 위치 고려하여 조금 더 위로 */
             left: 50%;
             transform: translateX(-50%);
             z-index: 2;
             display: grid;
             place-items: center;
+            width: 100%;
+            pointer-events: none; /* 버튼 외 영역 터치 통과 */
         }
 
         button {
+            pointer-events: auto; /* 버튼만 터치 가능 */
             grid-area: 1 / 1;
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
-            padding: 12px 30px;
+            padding: 15px 40px; /* 모바일 터치 영역 확보를 위해 더 크게 */
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: 500;
             cursor: pointer;
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border-radius: 8px;
-            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+            border-radius: 30px; /* 더 둥글게 */
+            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 2px;
             outline: none;
@@ -54,26 +59,20 @@
         #openBtn {
             color: #FFFFFF;
             border-color: rgba(255, 255, 255, 0.4);
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
         }
 
         #closeBtn {
-            color: #bc2e2e;
-            border-color: rgba(188, 46, 46, 0.4);
-            box-shadow: 0 0 10px rgba(188, 46, 46, 0.1);
+            color: #ff6b6b;
+            border-color: rgba(255, 107, 107, 0.4);
+            box-shadow: 0 0 15px rgba(188, 46, 46, 0.1);
             opacity: 0;
             pointer-events: none;
         }
 
-        button:hover {
-            background: rgba(255, 255, 255, 0.25);
-            border-color: rgba(255, 255, 255, 0.5);
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
-        }
-
         button:active {
-            transform: translateY(1px);
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.3);
         }
     </style>
     <script type="importmap">
@@ -89,29 +88,65 @@
 <body>
     <div id="canvas-container"></div>
     <div id="ui-container">
-        <button id="openBtn">Open</button>
-        <button id="closeBtn">Close</button>
+        <button id="openBtn">Enter</button>
+        <button id="closeBtn">Exit</button>
     </div>
 
     <video id="video-source" src="./video_01.mp4" loop muted playsinline 
        style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
     </video>
 
+    <audio id="bgm-source" src="./music_01.mp3" loop crossorigin="anonymous"></audio>
+
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Scene & Camera Setup ---
+        // --- Mobile Detection & Scaling Logic ---
+        const isMobile = () => window.innerWidth < 768;
+        
+        // Base Scales
+        const BASE_VIDEO_SCALE = 2.0; 
+        const MOBILE_SCALE_FACTOR = 1.5; // 50% Bigger on Mobile
+
+        // --- Audio Setup (Web Audio API) ---
+        const audioEl = document.getElementById('bgm-source');
+        let audioCtx, sourceNode, filterNode, gainNode;
+        let isAudioInitialized = false;
+
+        function initAudio() {
+            if (isAudioInitialized) return;
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+            sourceNode = audioCtx.createMediaElementSource(audioEl);
+            filterNode = audioCtx.createBiquadFilter();
+            gainNode = audioCtx.createGain();
+
+            filterNode.type = 'lowpass';
+            filterNode.frequency.value = 400; 
+            filterNode.Q.value = 1;
+            gainNode.gain.value = 0.2; 
+
+            sourceNode.connect(filterNode);
+            filterNode.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            audioEl.play().catch(e => console.log("Waiting for interaction"));
+            isAudioInitialized = true;
+        }
+
+        document.body.addEventListener('click', () => { initAudio(); if(audioCtx) audioCtx.resume(); }, { once: true });
+        document.body.addEventListener('touchstart', () => { initAudio(); if(audioCtx) audioCtx.resume(); }, { once: true });
+
+        // --- Scene Setup ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
-        // --- Video Texture Setup ---
         const video = document.getElementById('video-source');
         const videoTexture = new THREE.VideoTexture(video);
         videoTexture.colorSpace = THREE.SRGBColorSpace;
@@ -123,18 +158,18 @@
         const uniforms = {
             iTime: { value: 0 },
             iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1) },
-            iMouse: { value: new THREE.Vector2(0, 0) }, // Changed to Vector2 for easier handling
+            iMouse: { value: new THREE.Vector2(0, 0) },
             u_openProgress: { value: 0.0 },
             uVideoTexture: { value: videoTexture },
-            uVideoRatio: { value: 1.77 }, 
-            uVideoScale: { value: 2.0 }   
+            uVideoRatio: { value: 1.77 },
+            // Mobile Scaling Uniforms
+            uVideoScale: { value: isMobile() ? (BASE_VIDEO_SCALE / MOBILE_SCALE_FACTOR) : BASE_VIDEO_SCALE },
+            uContentScale: { value: isMobile() ? MOBILE_SCALE_FACTOR : 1.0 } 
         };
 
-        // Video aspect ratio update
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth && video.videoHeight) {
-                const ratio = video.videoWidth / video.videoHeight;
-                uniforms.uVideoRatio.value = ratio;
+                uniforms.uVideoRatio.value = video.videoWidth / video.videoHeight;
             }
         });
 
@@ -142,30 +177,23 @@
         const fragmentShader = `
             uniform vec3 iResolution;
             uniform float iTime;
-            uniform vec2 iMouse; // Normalized mouse (-1 to 1)
+            uniform vec2 iMouse;
             uniform float u_openProgress;
             uniform sampler2D uVideoTexture;
             uniform float uVideoRatio;
             uniform float uVideoScale;
+            uniform float uContentScale; // New uniform for global scaling
 
-            // --- Helper Functions ---
             float pi = 3.14159265;
-            vec3 triwave(vec3 x) {
-                return abs(fract(.5*x/pi-.25)-.5)*4.-1.;
-            }
+            vec3 triwave(vec3 x) { return abs(fract(.5*x/pi-.25)-.5)*4.-1.; }
 
-            // --- Main Function ---
             void main() {
                 vec2 fragCoord = gl_FragCoord.xy;
                 vec2 r = iResolution.xy;
                 vec2 screenUV = fragCoord.xy / r.xy;
 
-                // --- 1. Calculate Parallax Video UVs ---
-                // 마우스 움직임에 따라 비디오 UV를 반대 방향으로 이동시켜 깊이감(Depth) 생성
-                // iMouse * 0.15 : 마우스 영향력 조절 (값이 클수록 비디오가 많이 움직임)
+                // 1. Parallax & Video Scaling
                 vec2 parallaxOffset = iMouse * 0.15; 
-                
-                // Zoom & Center logic with Parallax applied
                 vec2 centeredUV = (screenUV - 0.5) * uVideoScale - parallaxOffset; 
                 
                 float screenRatio = r.x / r.y;
@@ -174,42 +202,30 @@
                     centeredUV.y + 0.5
                 );
                 
-                // Global Texture Sampling
                 vec4 bgVideo = texture2D(uVideoTexture, videoUV);
-                
-                // Clamp borders
-                if(videoUV.x < 0.0 || videoUV.x > 1.0 || videoUV.y < 0.0 || videoUV.y > 1.0) {
-                    bgVideo = vec4(0.0);
-                }
+                if(videoUV.x < 0.0 || videoUV.x > 1.0 || videoUV.y < 0.0 || videoUV.y > 1.0) bgVideo = vec4(0.0);
                 bgVideo *= 1.2;
 
-                // --- 2. Camera Setup with Mouse Orbit ---
-                vec2 uv = (fragCoord.xy*2.-r) / r.y;
+                // 2. Camera & Raymarching Setup
+                // Apply uContentScale to Zoom In/Out the entire 3D scene (Portal)
+                vec2 uv = ((fragCoord.xy*2.-r) / r.y) / uContentScale;
                 
-                // Camera Position: Mouse moves the camera slightly left/right/up/down
-                // 기존 위치(0, 1.5, 10)에 마우스 오프셋을 더함
                 vec3 cam_pos = vec3(0.0, 1.5, 10.0);
-                cam_pos.x += iMouse.x * 3.0; // X축 이동 범위
-                cam_pos.y += iMouse.y * 1.5; // Y축 이동 범위
+                cam_pos.x += iMouse.x * 3.0; 
+                cam_pos.y += iMouse.y * 1.5; 
                 
-                // Ray Direction: Look slightly towards the center based on camera move
-                // 카메라가 움직인 만큼 시선도 살짝 꺾어주어 입체감 극대화
                 vec3 rd = normalize(vec3(uv, -1.4));
-                
-                // Mouse Rotation Logic (Simple LookAt effect)
-                // 카메라가 우측으로 가면 좌측을 보게 함
                 rd.xz *= mat2(cos(iMouse.x * 0.2), sin(iMouse.x * 0.2), -sin(iMouse.x * 0.2), cos(iMouse.x * 0.2));
                 rd.yz *= mat2(cos(iMouse.y * 0.1), sin(iMouse.y * 0.1), -sin(iMouse.y * 0.1), cos(iMouse.y * 0.1));
 
-                // Time based gentle floating (keeping original effect)
                 {
                     float time = iTime*.25;
                     cam_pos += vec3(0.5*cos(time), 0, 0.5*sin(time));
                 }
 
-                // --- 3. Raymarching Loop ---
+                // 3. Raymarching Loop
                 vec4 o = vec4(0.0);
-                vec3 P = vec3(0,2.3,2.5); // Portal Center
+                vec3 P = vec3(0,2.3,2.5); 
                 float h = 1.;
                 float transmission = 1.;
                 float t = iTime, d, i, z = 0.;
@@ -241,16 +257,12 @@
                   z += min(abs(p.y+h)*.4+.03, d);
                 }
 
-                // --- 4. Tone Mapping ---
                 o = o/1e4;
                 o *= 1.-length(uv)*.2;
                 o = sqrt(1.-exp(-1.5*o*o));
                 
-                // --- 5. Late Composition ---
                 float mask = 0.0;
                 vec3 portalCenter = vec3(0, 2.3, 2.5); 
-                
-                // Recalculate geometric intersection with new camera pos
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
                 
                 if (planeDist > 0.0) {
@@ -263,90 +275,112 @@
             }
         `;
 
-        // --- Material & Mesh ---
         const material = new THREE.ShaderMaterial({
             uniforms: uniforms,
             fragmentShader: fragmentShader,
-            vertexShader: `
-                void main() {
-                    gl_Position = vec4( position, 1.0 );
-                }
-            `
+            vertexShader: `void main() { gl_Position = vec4( position, 1.0 ); }`
         });
 
-        const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-        scene.add(plane);
+        scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
 
-        // --- Mouse Interaction with GSAP ---
-        // 마우스 좌표를 추적하여 부드럽게 보간(Interpolation)합니다.
-        // 목표: -1 ~ 1 사이의 정규화된 좌표 (화면 중앙이 0,0)
-        const targetMouse = new THREE.Vector2();
+        // --- Interaction Logic (Mouse & Touch) ---
         
+        // 1. Mouse (Desktop)
         document.addEventListener('mousemove', (e) => {
-            // 화면 중심 기준 정규화
+            if(isMobile()) return; // Skip on mobile
             const x = (e.clientX / window.innerWidth) * 2 - 1;
-            const y = -(e.clientY / window.innerHeight) * 2 + 1; // Y축 반전
+            const y = -(e.clientY / window.innerHeight) * 2 + 1;
+            gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 1.0, ease: "power2.out" });
+        });
+
+        // 2. Touch (Mobile) - Drag & Elastic Return
+        let isDragging = false;
+        
+        document.addEventListener('touchstart', (e) => {
+            isDragging = true;
+        }, { passive: false });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            // Prevent scrolling while dragging the portal
+            if(e.cancelable) e.preventDefault(); 
             
-            // GSAP를 사용하여 iMouse 유니폼 값을 부드럽게 업데이트 (관성 효과)
-            gsap.to(uniforms.iMouse.value, {
-                x: x,
-                y: y,
-                duration: 1.0,  // 반응 속도 (클수록 더 부드럽고 느리게 따라옴)
-                ease: "power2.out"
+            const touch = e.touches[0];
+            const x = (touch.clientX / window.innerWidth) * 2 - 1;
+            const y = -(touch.clientY / window.innerHeight) * 2 + 1;
+            
+            // Immediate response for drag
+            gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 0.5, ease: "power1.out" });
+        }, { passive: false });
+
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+            // Elastic Return to Center (0,0)
+            gsap.to(uniforms.iMouse.value, { 
+                x: 0, 
+                y: 0, 
+                duration: 1.5, 
+                ease: "elastic.out(1, 0.5)" // Bouncy effect
             });
         });
 
-        // --- Event Handling (Resize & Buttons) ---
+        // --- Resize Handler ---
         window.addEventListener('resize', () => {
             const width = window.innerWidth;
             const height = window.innerHeight;
             renderer.setSize(width, height);
             uniforms.iResolution.value.set(width, height, 1);
+            
+            // Update Scaling based on device width change
+            if (isMobile()) {
+                uniforms.uContentScale.value = MOBILE_SCALE_FACTOR;
+                uniforms.uVideoScale.value = BASE_VIDEO_SCALE / MOBILE_SCALE_FACTOR;
+            } else {
+                uniforms.uContentScale.value = 1.0;
+                uniforms.uVideoScale.value = BASE_VIDEO_SCALE;
+            }
         });
 
+        // --- Button Logic ---
         const openBtn = document.getElementById('openBtn');
         const closeBtn = document.getElementById('closeBtn');
 
         openBtn.addEventListener('click', () => {
-            gsap.to(openBtn, {
-                opacity: 0,
-                duration: 0.3,
-                onComplete: () => { openBtn.style.pointerEvents = 'none'; }
-            });
+            initAudio();
+            gsap.to(openBtn, { opacity: 0, duration: 0.3, onComplete: () => { openBtn.style.pointerEvents = 'none'; } });
+            video.play().catch(e => {});
 
-            video.play().catch(e => console.warn("Video play blocked:", e));
+            // Audio: Muffled -> Clear
+            if(filterNode && gainNode) {
+                gsap.to(filterNode.frequency, { value: 22000, duration: 2.0 });
+                gsap.to(gainNode.gain, { value: 1.0, duration: 2.0 });
+            }
 
+            // Portal Open
             gsap.to(uniforms.u_openProgress, {
-                value: 1.0,
-                duration: 2.0,
-                ease: "power2.out",
+                value: 1.0, duration: 2.0, ease: "power2.out",
                 onComplete: () => {
                     closeBtn.style.pointerEvents = 'auto';
-                    gsap.to(closeBtn, {
-                        opacity: 1,
-                        duration: 0.5
-                    });
+                    gsap.to(closeBtn, { opacity: 1, duration: 0.5 });
                 }
             });
         });
 
         closeBtn.addEventListener('click', () => {
-            gsap.to(closeBtn, {
-                opacity: 0,
-                duration: 0.3,
-                onComplete: () => { closeBtn.style.pointerEvents = 'none'; }
-            });
+            gsap.to(closeBtn, { opacity: 0, duration: 0.3, onComplete: () => { closeBtn.style.pointerEvents = 'none'; } });
+            
+            // Audio: Clear -> Muffled
+            if(filterNode && gainNode) {
+                gsap.to(filterNode.frequency, { value: 400, duration: 1.5 });
+                gsap.to(gainNode.gain, { value: 0.2, duration: 1.5 });
+            }
 
+            // Portal Close
             gsap.to(uniforms.u_openProgress, {
-                value: 0.0,
-                duration: 1.5,
-                ease: "power2.out",
+                value: 0.0, duration: 1.5, ease: "power2.out",
                 onComplete: () => {
                     openBtn.style.pointerEvents = 'auto';
-                    gsap.to(openBtn, {
-                        opacity: 1,
-                        duration: 0.5
-                    });
+                    gsap.to(openBtn, { opacity: 1, duration: 0.5 });
                     video.pause();
                 }
             });
@@ -354,16 +388,12 @@
 
         function animate(time) {
             requestAnimationFrame(animate);
-            if (video.readyState >= video.HAVE_CURRENT_DATA) {
-                videoTexture.needsUpdate = true;
-            }
+            if (video.readyState >= video.HAVE_CURRENT_DATA) videoTexture.needsUpdate = true;
             uniforms.iTime.value = time * 0.001;
             renderer.render(scene, camera);
         }
-
         animate(0);
 
     </script>
 </body>
-
 </html>
