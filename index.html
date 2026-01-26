@@ -3,20 +3,18 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Snowy Path Gateway - Mobile Interactive</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snowy Path Gateway - Audio Experience</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background: #000;
-            touch-action: none; /* 모바일에서 스크롤 방지 (드래그 전용) */
         }
 
         #canvas-container {
             width: 100vw;
-            height: 100vh; /* 모바일 브라우저 높이 이슈 대응 필요시 dvh 사용 권장 */
-            height: 100dvh; 
+            height: 100vh;
             position: absolute;
             top: 0;
             left: 0;
@@ -25,31 +23,28 @@
 
         #ui-container {
             position: absolute;
-            bottom: 50px; /* 모바일 손가락 위치 고려하여 조금 더 위로 */
+            bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 2;
             display: grid;
             place-items: center;
-            width: 100%;
-            pointer-events: none; /* 버튼 외 영역 터치 통과 */
         }
 
         button {
-            pointer-events: auto; /* 버튼만 터치 가능 */
             grid-area: 1 / 1;
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
-            padding: 15px 40px; /* 모바일 터치 영역 확보를 위해 더 크게 */
+            padding: 12px 30px;
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 500;
             cursor: pointer;
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border-radius: 30px; /* 더 둥글게 */
-            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+            border-radius: 8px;
+            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 2px;
             outline: none;
@@ -59,20 +54,26 @@
         #openBtn {
             color: #FFFFFF;
             border-color: rgba(255, 255, 255, 0.4);
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
         }
 
         #closeBtn {
-            color: #ff6b6b;
-            border-color: rgba(255, 107, 107, 0.4);
-            box-shadow: 0 0 15px rgba(188, 46, 46, 0.1);
+            color: #bc2e2e;
+            border-color: rgba(188, 46, 46, 0.4);
+            box-shadow: 0 0 10px rgba(188, 46, 46, 0.1);
             opacity: 0;
             pointer-events: none;
         }
 
+        button:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
         button:active {
-            transform: scale(0.95);
-            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(1px);
         }
     </style>
     <script type="importmap">
@@ -88,8 +89,8 @@
 <body>
     <div id="canvas-container"></div>
     <div id="ui-container">
-        <button id="openBtn">Enter</button>
-        <button id="closeBtn">Exit</button>
+        <button id="openBtn">Open</button>
+        <button id="closeBtn">Close</button>
     </div>
 
     <video id="video-source" src="./video_01.mp4" loop muted playsinline 
@@ -101,52 +102,65 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Mobile Detection & Scaling Logic ---
-        const isMobile = () => window.innerWidth < 768;
-        
-        // Base Scales
-        const BASE_VIDEO_SCALE = 2.0; 
-        const MOBILE_SCALE_FACTOR = 1.5; // 50% Bigger on Mobile
-
-        // --- Audio Setup (Web Audio API) ---
+        // --- Audio Setup (Web Audio API for Filters) ---
         const audioEl = document.getElementById('bgm-source');
         let audioCtx, sourceNode, filterNode, gainNode;
         let isAudioInitialized = false;
 
+        // Function to initialize audio context (must be triggered by user interaction)
         function initAudio() {
             if (isAudioInitialized) return;
+            
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
+            
+            // Create Nodes
             sourceNode = audioCtx.createMediaElementSource(audioEl);
             filterNode = audioCtx.createBiquadFilter();
             gainNode = audioCtx.createGain();
 
+            // Configure Filter (Low Pass - Muffled Effect)
             filterNode.type = 'lowpass';
-            filterNode.frequency.value = 400; 
+            filterNode.frequency.value = 400; // Start deeply muffled
             filterNode.Q.value = 1;
-            gainNode.gain.value = 0.2; 
 
+            // Configure Gain (Volume)
+            gainNode.gain.value = 0.2; // Start quiet
+
+            // Connect Graph: Source -> Filter -> Gain -> Destination
             sourceNode.connect(filterNode);
             filterNode.connect(gainNode);
             gainNode.connect(audioCtx.destination);
 
-            audioEl.play().catch(e => console.log("Waiting for interaction"));
+            // Play
+            audioEl.play().then(() => {
+                console.log("Audio started");
+            }).catch(e => console.log("Waiting for interaction to play audio"));
+
             isAudioInitialized = true;
         }
 
-        document.body.addEventListener('click', () => { initAudio(); if(audioCtx) audioCtx.resume(); }, { once: true });
-        document.body.addEventListener('touchstart', () => { initAudio(); if(audioCtx) audioCtx.resume(); }, { once: true });
+        // Initialize audio on first click anywhere (Browser Policy)
+        document.body.addEventListener('click', () => {
+            initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }, { once: true });
 
-        // --- Scene Setup ---
+
+        // --- Scene & Camera Setup ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
+        // --- Video Texture Setup ---
         const video = document.getElementById('video-source');
         const videoTexture = new THREE.VideoTexture(video);
         videoTexture.colorSpace = THREE.SRGBColorSpace;
@@ -161,15 +175,14 @@
             iMouse: { value: new THREE.Vector2(0, 0) },
             u_openProgress: { value: 0.0 },
             uVideoTexture: { value: videoTexture },
-            uVideoRatio: { value: 1.77 },
-            // Mobile Scaling Uniforms
-            uVideoScale: { value: isMobile() ? (BASE_VIDEO_SCALE / MOBILE_SCALE_FACTOR) : BASE_VIDEO_SCALE },
-            uContentScale: { value: isMobile() ? MOBILE_SCALE_FACTOR : 1.0 } 
+            uVideoRatio: { value: 1.77 }, 
+            uVideoScale: { value: 2.0 }   
         };
 
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth && video.videoHeight) {
-                uniforms.uVideoRatio.value = video.videoWidth / video.videoHeight;
+                const ratio = video.videoWidth / video.videoHeight;
+                uniforms.uVideoRatio.value = ratio;
             }
         });
 
@@ -182,17 +195,18 @@
             uniform sampler2D uVideoTexture;
             uniform float uVideoRatio;
             uniform float uVideoScale;
-            uniform float uContentScale; // New uniform for global scaling
 
             float pi = 3.14159265;
-            vec3 triwave(vec3 x) { return abs(fract(.5*x/pi-.25)-.5)*4.-1.; }
+            vec3 triwave(vec3 x) {
+                return abs(fract(.5*x/pi-.25)-.5)*4.-1.;
+            }
 
             void main() {
                 vec2 fragCoord = gl_FragCoord.xy;
                 vec2 r = iResolution.xy;
                 vec2 screenUV = fragCoord.xy / r.xy;
 
-                // 1. Parallax & Video Scaling
+                // Parallax Video UVs
                 vec2 parallaxOffset = iMouse * 0.15; 
                 vec2 centeredUV = (screenUV - 0.5) * uVideoScale - parallaxOffset; 
                 
@@ -203,13 +217,13 @@
                 );
                 
                 vec4 bgVideo = texture2D(uVideoTexture, videoUV);
-                if(videoUV.x < 0.0 || videoUV.x > 1.0 || videoUV.y < 0.0 || videoUV.y > 1.0) bgVideo = vec4(0.0);
+                if(videoUV.x < 0.0 || videoUV.x > 1.0 || videoUV.y < 0.0 || videoUV.y > 1.0) {
+                    bgVideo = vec4(0.0);
+                }
                 bgVideo *= 1.2;
 
-                // 2. Camera & Raymarching Setup
-                // Apply uContentScale to Zoom In/Out the entire 3D scene (Portal)
-                vec2 uv = ((fragCoord.xy*2.-r) / r.y) / uContentScale;
-                
+                // Camera Setup with Mouse Orbit
+                vec2 uv = (fragCoord.xy*2.-r) / r.y;
                 vec3 cam_pos = vec3(0.0, 1.5, 10.0);
                 cam_pos.x += iMouse.x * 3.0; 
                 cam_pos.y += iMouse.y * 1.5; 
@@ -223,7 +237,7 @@
                     cam_pos += vec3(0.5*cos(time), 0, 0.5*sin(time));
                 }
 
-                // 3. Raymarching Loop
+                // Raymarching
                 vec4 o = vec4(0.0);
                 vec3 P = vec3(0,2.3,2.5); 
                 float h = 1.;
@@ -257,10 +271,12 @@
                   z += min(abs(p.y+h)*.4+.03, d);
                 }
 
+                // Tone Mapping
                 o = o/1e4;
                 o *= 1.-length(uv)*.2;
                 o = sqrt(1.-exp(-1.5*o*o));
                 
+                // Late Composition
                 float mask = 0.0;
                 vec3 portalCenter = vec3(0, 2.3, 2.5); 
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
@@ -275,112 +291,109 @@
             }
         `;
 
+        // --- Material & Mesh ---
         const material = new THREE.ShaderMaterial({
             uniforms: uniforms,
             fragmentShader: fragmentShader,
-            vertexShader: `void main() { gl_Position = vec4( position, 1.0 ); }`
+            vertexShader: `
+                void main() {
+                    gl_Position = vec4( position, 1.0 );
+                }
+            `
         });
 
-        scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        scene.add(plane);
 
-        // --- Interaction Logic (Mouse & Touch) ---
-        
-        // 1. Mouse (Desktop)
+        // --- Mouse Interaction (Parallax) ---
+        const targetMouse = new THREE.Vector2();
         document.addEventListener('mousemove', (e) => {
-            if(isMobile()) return; // Skip on mobile
             const x = (e.clientX / window.innerWidth) * 2 - 1;
-            const y = -(e.clientY / window.innerHeight) * 2 + 1;
-            gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 1.0, ease: "power2.out" });
-        });
-
-        // 2. Touch (Mobile) - Drag & Elastic Return
-        let isDragging = false;
-        
-        document.addEventListener('touchstart', (e) => {
-            isDragging = true;
-        }, { passive: false });
-
-        document.addEventListener('touchmove', (e) => {
-            if (!isDragging) return;
-            // Prevent scrolling while dragging the portal
-            if(e.cancelable) e.preventDefault(); 
+            const y = -(e.clientY / window.innerHeight) * 2 + 1; 
             
-            const touch = e.touches[0];
-            const x = (touch.clientX / window.innerWidth) * 2 - 1;
-            const y = -(touch.clientY / window.innerHeight) * 2 + 1;
-            
-            // Immediate response for drag
-            gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 0.5, ease: "power1.out" });
-        }, { passive: false });
-
-        document.addEventListener('touchend', () => {
-            isDragging = false;
-            // Elastic Return to Center (0,0)
-            gsap.to(uniforms.iMouse.value, { 
-                x: 0, 
-                y: 0, 
-                duration: 1.5, 
-                ease: "elastic.out(1, 0.5)" // Bouncy effect
+            gsap.to(uniforms.iMouse.value, {
+                x: x,
+                y: y,
+                duration: 1.0,  
+                ease: "power2.out"
             });
         });
 
-        // --- Resize Handler ---
+        // --- Event Handling (Buttons & Audio Transition) ---
         window.addEventListener('resize', () => {
             const width = window.innerWidth;
             const height = window.innerHeight;
             renderer.setSize(width, height);
             uniforms.iResolution.value.set(width, height, 1);
-            
-            // Update Scaling based on device width change
-            if (isMobile()) {
-                uniforms.uContentScale.value = MOBILE_SCALE_FACTOR;
-                uniforms.uVideoScale.value = BASE_VIDEO_SCALE / MOBILE_SCALE_FACTOR;
-            } else {
-                uniforms.uContentScale.value = 1.0;
-                uniforms.uVideoScale.value = BASE_VIDEO_SCALE;
-            }
         });
 
-        // --- Button Logic ---
         const openBtn = document.getElementById('openBtn');
         const closeBtn = document.getElementById('closeBtn');
 
         openBtn.addEventListener('click', () => {
+            // Init audio if not already (just in case)
             initAudio();
-            gsap.to(openBtn, { opacity: 0, duration: 0.3, onComplete: () => { openBtn.style.pointerEvents = 'none'; } });
-            video.play().catch(e => {});
 
-            // Audio: Muffled -> Clear
+            // UI Animation
+            gsap.to(openBtn, {
+                opacity: 0,
+                duration: 0.3,
+                onComplete: () => { openBtn.style.pointerEvents = 'none'; }
+            });
+
+            // Video Play
+            video.play().catch(e => console.warn("Video play blocked:", e));
+
+            // AUDIO TRANSITION: Muffled -> Clear
             if(filterNode && gainNode) {
-                gsap.to(filterNode.frequency, { value: 22000, duration: 2.0 });
-                gsap.to(gainNode.gain, { value: 1.0, duration: 2.0 });
+                // Animate Frequency: 400Hz -> 22000Hz (Clear)
+                gsap.to(filterNode.frequency, { value: 22000, duration: 2.0, ease: "power2.out" });
+                // Animate Volume: 0.2 -> 1.0 (Full)
+                gsap.to(gainNode.gain, { value: 1.0, duration: 2.0, ease: "power2.out" });
             }
 
-            // Portal Open
+            // Portal Animation
             gsap.to(uniforms.u_openProgress, {
-                value: 1.0, duration: 2.0, ease: "power2.out",
+                value: 1.0,
+                duration: 2.0,
+                ease: "power2.out",
                 onComplete: () => {
                     closeBtn.style.pointerEvents = 'auto';
-                    gsap.to(closeBtn, { opacity: 1, duration: 0.5 });
+                    gsap.to(closeBtn, {
+                        opacity: 1,
+                        duration: 0.5
+                    });
                 }
             });
         });
 
         closeBtn.addEventListener('click', () => {
-            gsap.to(closeBtn, { opacity: 0, duration: 0.3, onComplete: () => { closeBtn.style.pointerEvents = 'none'; } });
-            
-            // Audio: Clear -> Muffled
+            // UI Animation
+            gsap.to(closeBtn, {
+                opacity: 0,
+                duration: 0.3,
+                onComplete: () => { closeBtn.style.pointerEvents = 'none'; }
+            });
+
+            // AUDIO TRANSITION: Clear -> Muffled
             if(filterNode && gainNode) {
-                gsap.to(filterNode.frequency, { value: 400, duration: 1.5 });
-                gsap.to(gainNode.gain, { value: 0.2, duration: 1.5 });
+                // Animate Frequency: Current -> 400Hz (Muffled)
+                gsap.to(filterNode.frequency, { value: 400, duration: 1.5, ease: "power2.out" });
+                // Animate Volume: Current -> 0.2 (Quiet)
+                gsap.to(gainNode.gain, { value: 0.2, duration: 1.5, ease: "power2.out" });
             }
 
-            // Portal Close
+            // Portal Animation
             gsap.to(uniforms.u_openProgress, {
-                value: 0.0, duration: 1.5, ease: "power2.out",
+                value: 0.0,
+                duration: 1.5,
+                ease: "power2.out",
                 onComplete: () => {
                     openBtn.style.pointerEvents = 'auto';
-                    gsap.to(openBtn, { opacity: 1, duration: 0.5 });
+                    gsap.to(openBtn, {
+                        opacity: 1,
+                        duration: 0.5
+                    });
                     video.pause();
                 }
             });
@@ -388,12 +401,16 @@
 
         function animate(time) {
             requestAnimationFrame(animate);
-            if (video.readyState >= video.HAVE_CURRENT_DATA) videoTexture.needsUpdate = true;
+            if (video.readyState >= video.HAVE_CURRENT_DATA) {
+                videoTexture.needsUpdate = true;
+            }
             uniforms.iTime.value = time * 0.001;
             renderer.render(scene, camera);
         }
+
         animate(0);
 
     </script>
 </body>
+
 </html>
