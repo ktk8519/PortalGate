@@ -1,20 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Gateway - Audio Experience</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Portal Gate - Fixed Center</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background: #000;
+            touch-action: none; /* 드래그 시 화면 스크롤 방지 */
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         #canvas-container {
-            width: 100vw;
+            width: 100%;
             height: 100vh;
+            height: 100dvh; /* 모바일 브라우저 주소창 대응 */
             position: absolute;
             top: 0;
             left: 0;
@@ -23,394 +26,394 @@
 
         #ui-container {
             position: absolute;
-            bottom: 30px;
+            bottom: 15%;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 2;
+            z-index: 10;
             display: grid;
             place-items: center;
-        }
-
-        button {
-            grid-area: 1 / 1;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 12px 30px;
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            font-size: 16px;
-            font-weight: 500;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 8px;
-            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            outline: none;
-            opacity: 1;
-        }
-
-        #openBtn {
-            color: #FFFFFF;
-            border-color: rgba(255, 255, 255, 0.4);
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
-        }
-
-        #closeBtn {
-            color: #bc2e2e;
-            border-color: rgba(188, 46, 46, 0.4);
-            box-shadow: 0 0 10px rgba(188, 46, 46, 0.1);
-            opacity: 0;
+            width: 100%;
             pointer-events: none;
         }
 
-        button:hover {
-            background: rgba(255, 255, 255, 0.25);
-            border-color: rgba(255, 255, 255, 0.5);
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
+        button {
+            pointer-events: auto;
+            grid-area: 1 / 1;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 16px 48px;
+            font-family: sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 50px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            outline: none;
+            transition: all 0.3s ease;
         }
 
-        button:active {
-            transform: translateY(1px);
+        #openBtn { color: #fff; }
+        #closeBtn { 
+            color: #ff8a8a; 
+            border-color: rgba(255, 100, 100, 0.3);
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.9);
         }
     </style>
+    
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
-            }
-        }
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
-
 <body>
+
     <div id="canvas-container"></div>
     <div id="ui-container">
-        <button id="openBtn">Open</button>
-        <button id="closeBtn">Close</button>
+        <button id="openBtn">Enter</button>
+        <button id="closeBtn">Exit</button>
     </div>
 
-    <video id="video-source" src="./video_01.mp4" loop muted playsinline 
-       style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
-    </video>
-
+    <video id="video-source" src="./video_01.mp4" loop muted playsinline style="display:none"></video>
     <audio id="bgm-source" src="./music_01.mp3" loop crossorigin="anonymous"></audio>
 
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Audio Setup (Web Audio API for Filters) ---
+        // --- 1. Configuration & Utils ---
+        const config = {
+            isMobile: () => window.innerWidth < 768,
+            mobileScale: 1.3, // 모바일에서 포탈 크기 배율
+            desktopScale: 1.0
+        };
+
+        // --- 2. Audio System (Web Audio API) ---
         const audioEl = document.getElementById('bgm-source');
         let audioCtx, sourceNode, filterNode, gainNode;
-        let isAudioInitialized = false;
+        let isAudioInit = false;
 
-        // Function to initialize audio context (must be triggered by user interaction)
         function initAudio() {
-            if (isAudioInitialized) return;
-            
+            if (isAudioInit) return;
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
             
-            // Create Nodes
             sourceNode = audioCtx.createMediaElementSource(audioEl);
             filterNode = audioCtx.createBiquadFilter();
             gainNode = audioCtx.createGain();
 
-            // Configure Filter (Low Pass - Muffled Effect)
+            // 필터 설정 (LowPass - 먹먹한 소리)
             filterNode.type = 'lowpass';
-            filterNode.frequency.value = 400; // Start deeply muffled
-            filterNode.Q.value = 1;
+            filterNode.frequency.value = 400; 
+            gainNode.gain.value = 0.2; 
 
-            // Configure Gain (Volume)
-            gainNode.gain.value = 0.2; // Start quiet
-
-            // Connect Graph: Source -> Filter -> Gain -> Destination
             sourceNode.connect(filterNode);
             filterNode.connect(gainNode);
             gainNode.connect(audioCtx.destination);
 
-            // Play
-            audioEl.play().then(() => {
-                console.log("Audio started");
-            }).catch(e => console.log("Waiting for interaction to play audio"));
-
-            isAudioInitialized = true;
+            audioEl.play().catch(() => console.log("Interaction needed for audio"));
+            isAudioInit = true;
         }
 
-        // Initialize audio on first click anywhere (Browser Policy)
-        document.body.addEventListener('click', () => {
-            initAudio();
-            if (audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-        }, { once: true });
-
-
-        // --- Scene & Camera Setup ---
+        // --- 3. Three.js Setup ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 성능 최적화
         container.appendChild(renderer.domElement);
 
-        // --- Video Texture Setup ---
+        // --- 4. Video Texture ---
         const video = document.getElementById('video-source');
         const videoTexture = new THREE.VideoTexture(video);
         videoTexture.colorSpace = THREE.SRGBColorSpace;
         videoTexture.minFilter = THREE.LinearFilter;
         videoTexture.magFilter = THREE.LinearFilter;
-        videoTexture.generateMipmaps = false; 
 
-        // --- Uniforms ---
+        // --- 5. Shader Uniforms ---
         const uniforms = {
             iTime: { value: 0 },
-            iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1) },
+            iResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
             iMouse: { value: new THREE.Vector2(0, 0) },
             u_openProgress: { value: 0.0 },
             uVideoTexture: { value: videoTexture },
-            uVideoRatio: { value: 1.77 }, 
-            uVideoScale: { value: 2.0 }   
+            uVideoRatio: { value: 1.77 }, // Default 16:9
+            uScale: { value: 1.0 }
         };
 
+        // 비디오 메타데이터 로드 시 비율 업데이트
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth && video.videoHeight) {
-                const ratio = video.videoWidth / video.videoHeight;
-                uniforms.uVideoRatio.value = ratio;
+                uniforms.uVideoRatio.value = video.videoWidth / video.videoHeight;
             }
         });
 
-        // --- Fragment Shader ---
+        // --- 6. The Shader (Fixed Centering & Aspect Ratio) ---
+        const vertexShader = `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv; // (0,0) ~ (1,1) 전달
+                gl_Position = vec4(position, 1.0);
+            }
+        `;
+
         const fragmentShader = `
-            uniform vec3 iResolution;
+            varying vec2 vUv;
+            
+            uniform vec2 iResolution;
             uniform float iTime;
             uniform vec2 iMouse;
             uniform float u_openProgress;
             uniform sampler2D uVideoTexture;
             uniform float uVideoRatio;
-            uniform float uVideoScale;
+            uniform float uScale;
 
-            float pi = 3.14159265;
+            // 회전 함수
+            mat2 rot(float a) {
+                float c = cos(a), s = sin(a);
+                return mat2(c, s, -s, c);
+            }
+
+            // 삼각파 (지글거림)
             vec3 triwave(vec3 x) {
+                float pi = 3.14159265;
                 return abs(fract(.5*x/pi-.25)-.5)*4.-1.;
             }
 
             void main() {
-                vec2 fragCoord = gl_FragCoord.xy;
-                vec2 r = iResolution.xy;
-                vec2 screenUV = fragCoord.xy / r.xy;
+                // [좌표계 보정]
+                // vUv(0~1)를 사용하여 중심을 (0,0)으로 맞춤
+                vec2 uv = vUv - 0.5;
+                
+                // 화면 비율 계산 (가로/세로)
+                float screenAspect = iResolution.x / iResolution.y;
+                
+                // 3D 공간 왜곡 방지를 위해 가로 좌표에 화면 비율 곱함
+                uv.x *= screenAspect;
+                
+                // 전체 크기 조절 (모바일 확대)
+                uv /= uScale;
 
-                // Parallax Video UVs
-                vec2 parallaxOffset = iMouse * 0.15; 
-                vec2 centeredUV = (screenUV - 0.5) * uVideoScale - parallaxOffset; 
+                // [비디오 텍스처 매핑 - Cover Logic]
+                // 비디오가 찌그러지지 않고 화면을 꽉 채우도록 UV 계산
+                vec2 vidUV = vUv - 0.5; // 중심 기준
                 
-                float screenRatio = r.x / r.y;
-                vec2 videoUV = vec2(
-                    centeredUV.x * (screenRatio / uVideoRatio) + 0.5, 
-                    centeredUV.y + 0.5
-                );
+                // 마우스 시차 효과 (Parallax) 살짝 적용
+                vidUV -= iMouse * 0.05;
+
+                float vidAspect = uVideoRatio;
+                vec2 scaleFactor = vec2(1.0);
                 
-                vec4 bgVideo = texture2D(uVideoTexture, videoUV);
-                if(videoUV.x < 0.0 || videoUV.x > 1.0 || videoUV.y < 0.0 || videoUV.y > 1.0) {
+                // 화면이 영상보다 더 납작하면(Wide) -> 세로를 잘라냄
+                // 화면이 영상보다 더 길쭉하면(Tall) -> 가로를 잘라냄
+                if (screenAspect > vidAspect) {
+                    scaleFactor.y = screenAspect / vidAspect;
+                } else {
+                    scaleFactor.x = vidAspect / screenAspect;
+                }
+                
+                // 스케일 적용 후 다시 0~1 좌표로 복귀
+                vidUV = vidUV * scaleFactor + 0.5;
+
+                // 텍스처 샘플링
+                vec4 bgVideo = texture2D(uVideoTexture, vidUV);
+                
+                // 범위 밖 검은색 처리
+                if(vidUV.x < 0.0 || vidUV.x > 1.0 || vidUV.y < 0.0 || vidUV.y > 1.0) {
                     bgVideo = vec4(0.0);
                 }
-                bgVideo *= 1.2;
+                bgVideo *= 1.2; // 밝기 보정
 
-                // Camera Setup with Mouse Orbit
-                vec2 uv = (fragCoord.xy*2.-r) / r.y;
+                // [레이마칭 - 포탈 렌더링]
                 vec3 cam_pos = vec3(0.0, 1.5, 10.0);
-                cam_pos.x += iMouse.x * 3.0; 
-                cam_pos.y += iMouse.y * 1.5; 
                 
-                vec3 rd = normalize(vec3(uv, -1.4));
-                rd.xz *= mat2(cos(iMouse.x * 0.2), sin(iMouse.x * 0.2), -sin(iMouse.x * 0.2), cos(iMouse.x * 0.2));
-                rd.yz *= mat2(cos(iMouse.y * 0.1), sin(iMouse.y * 0.1), -sin(iMouse.y * 0.1), cos(iMouse.y * 0.1));
+                // 마우스/터치에 따른 카메라 이동
+                cam_pos.x += iMouse.x * 4.0;
+                cam_pos.y += iMouse.y * 2.0;
+                
+                // Ray Direction
+                vec3 rd = normalize(vec3(uv, -1.4)); // -1.4는 FOV 조절값
+                
+                // 카메라 회전 (LookAt 효과)
+                rd.xz *= rot(iMouse.x * 0.3);
+                rd.yz *= rot(iMouse.y * 0.2);
 
-                {
-                    float time = iTime*.25;
-                    cam_pos += vec3(0.5*cos(time), 0, 0.5*sin(time));
-                }
+                // 부유 효과
+                cam_pos += vec3(0.5*cos(iTime*0.25), 0, 0.5*sin(iTime*0.25));
 
-                // Raymarching
+                // 레이마칭 루프
                 vec4 o = vec4(0.0);
-                vec3 P = vec3(0,2.3,2.5); 
-                float h = 1.;
-                float transmission = 1.;
-                float t = iTime, d, i, z = 0.;
+                vec3 P = vec3(0, 2.3, 2.5); // 포탈 위치
+                float t = iTime;
+                float d, z = 0.;
+                float radius = u_openProgress * 3.0;
                 
-                vec3 P2 = vec3(0, -2.*h-2.3, 2.5);
-                float radius = u_openProgress * 3.0; 
-                float D, D2;
-                vec3 p;
-                
-                for(i = 0.; i++<65. && z < 1e3; o += transmission * (
-                        (cos(d/.1+vec4(1,2,2.5,0))+1.)/d*z
-                    ) + 2.*(cos(-4.5*iTime+D/.1+vec4(1,2,2.5,0))+1.)*exp2(-D*D)*z + 10.*(cos(vec4(1,2,2.5,0))+1.)*exp2(-abs(D2))*z) {
-                  
-                  p = z*rd + cam_pos;
-                  D = length(p-P)-radius;
-                  D2 = length((p-vec3(P.x,-h,P.z))*vec3(1.5,10.,1.5))-radius;
-                  if(p.y < -h) {
-                    p.y= abs(p.y+h)-h;
-                    float F0 = 0.15;
-                    transmission = .8 * (F0 + (1.-F0)*pow(clamp(1.+rd.y,0.,1.), 5.));
-                  } else { transmission = 1.; }
-                  p.y += .8*sin(p.z*2. + iTime*2. - d*12.)*.3;
-                  float T = 2.5*t-d*14.;
-                  float c = cos(T), s = sin(T);
-                  vec3 q = p-P;
-                  q.xy *= mat2(c,s,-s,c);
-                  for(d=1.;d++<9.;) q += triwave((q*d+t*2.)).yzx/d;
-                  d = .1*abs(length(p-P)-radius-p.z*.0) + abs(q.z)*.1;
-                  z += min(abs(p.y+h)*.4+.03, d);
+                for(float i = 0.; i < 60.; i++) {
+                    if(z > 100.) break;
+                    
+                    vec3 p = z * rd + cam_pos;
+                    
+                    float D = length(p - P) - radius;
+                    
+                    // 빛의 파동 계산
+                    vec4 wave = (cos(d/.1 + vec4(1,2,2.5,0)) + 1.) / d * z;
+                    vec4 ring = 2. * (cos(-4.5*t + D/.1 + vec4(1,2,2.5,0)) + 1.) * exp2(-D*D) * z;
+                    
+                    o += (wave + ring);
+
+                    // 바닥 반사 (Reflection)
+                    if(p.y < -1.0) {
+                        p.y = abs(p.y + 1.0) - 1.0;
+                    }
+                    
+                    // 왜곡 효과
+                    p.y += .8 * sin(p.z*2. + t*2. - d*12.) * .3;
+                    
+                    vec3 q = p - P;
+                    q.xy *= rot(2.5 * t - d * 14.);
+                    for(float j=1.; j<5.; j++) q += triwave((q*j + t*2.)).yzx / j;
+                    
+                    d = .1 * abs(length(p - P) - radius) + abs(q.z)*.1;
+                    z += max(0.05, min(abs(p.y+1.0)*.4+.03, d));
                 }
 
-                // Tone Mapping
-                o = o/1e4;
-                o *= 1.-length(uv)*.2;
-                o = sqrt(1.-exp(-1.5*o*o));
-                
-                // Late Composition
+                // 톤 매핑
+                o = o / 1e4;
+                o *= 1. - length(vUv - 0.5) * 0.5; // 비네팅
+                o = sqrt(1. - exp(-1.5 * o * o));
+
+                // 합성 (마스크)
                 float mask = 0.0;
-                vec3 portalCenter = vec3(0, 2.3, 2.5); 
+                vec3 portalCenter = vec3(0, 2.3, 2.5);
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
                 
                 if (planeDist > 0.0) {
                     vec3 hitPos = cam_pos + rd * planeDist;
                     float distFromCenter = length(hitPos.xy - portalCenter.xy);
-                    mask = smoothstep(radius, radius - 0.2, distFromCenter);
+                    mask = smoothstep(radius, radius - 0.1, distFromCenter);
                 }
                 
                 gl_FragColor = o + (bgVideo * mask);
             }
         `;
 
-        // --- Material & Mesh ---
         const material = new THREE.ShaderMaterial({
             uniforms: uniforms,
-            fragmentShader: fragmentShader,
-            vertexShader: `
-                void main() {
-                    gl_Position = vec4( position, 1.0 );
-                }
-            `
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader
         });
 
+        // 2x2 PlaneGeometry 사용 (화면 전체를 덮음)
         const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(plane);
 
-        // --- Mouse Interaction (Parallax) ---
-        const targetMouse = new THREE.Vector2();
-        document.addEventListener('mousemove', (e) => {
-            const x = (e.clientX / window.innerWidth) * 2 - 1;
-            const y = -(e.clientY / window.innerHeight) * 2 + 1; 
+        // --- 7. Event Handling & Resize ---
+        function onResize() {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            renderer.setSize(w, h);
+            uniforms.iResolution.value.set(w, h);
             
-            gsap.to(uniforms.iMouse.value, {
-                x: x,
-                y: y,
-                duration: 1.0,  
-                ease: "power2.out"
-            });
+            // 모바일이면 더 크게(Zoom Out 효과처럼 보이지만 실제론 Scale Up)
+            uniforms.uScale.value = config.isMobile() ? config.mobileScale : config.desktopScale;
+        }
+        window.addEventListener('resize', onResize);
+        onResize(); // 초기 실행
+
+        // --- 8. Interaction (Touch/Mouse) ---
+        let isDragging = false;
+
+        // Touch Events (Mobile)
+        document.addEventListener('touchstart', (e) => { isDragging = true; }, {passive: false});
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            // e.preventDefault(); // 필요 시 주석 해제 (스크롤 완전 차단)
+            const touch = e.touches[0];
+            
+            // 정규화 좌표 (-1 ~ 1)
+            const x = (touch.clientX / window.innerWidth) * 2 - 1;
+            const y = -(touch.clientY / window.innerHeight) * 2 + 1;
+            
+            gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 0.5, ease: "power1.out" });
+        }, {passive: false});
+
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+            // 탄성 복귀 (Elastic Return)
+            gsap.to(uniforms.iMouse.value, { x: 0, y: 0, duration: 1.5, ease: "elastic.out(1, 0.5)" });
         });
 
-        // --- Event Handling (Buttons & Audio Transition) ---
-        window.addEventListener('resize', () => {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            renderer.setSize(width, height);
-            uniforms.iResolution.value.set(width, height, 1);
+        // Mouse Events (Desktop)
+        document.addEventListener('mousemove', (e) => {
+            if (config.isMobile()) return;
+            const x = (e.clientX / window.innerWidth) * 2 - 1;
+            const y = -(e.clientY / window.innerHeight) * 2 + 1;
+            gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 1.0, ease: "power2.out" });
         });
 
+        // --- 9. Buttons & Animation Logic ---
         const openBtn = document.getElementById('openBtn');
         const closeBtn = document.getElementById('closeBtn');
 
         openBtn.addEventListener('click', () => {
-            // Init audio if not already (just in case)
-            initAudio();
+            initAudio(); // 오디오 시작
+            if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
-            // UI Animation
-            gsap.to(openBtn, {
-                opacity: 0,
-                duration: 0.3,
-                onComplete: () => { openBtn.style.pointerEvents = 'none'; }
-            });
+            gsap.to(openBtn, { opacity: 0, y: 20, duration: 0.3, onComplete: () => openBtn.style.pointerEvents = 'none' });
+            
+            video.play().catch(() => {});
 
-            // Video Play
-            video.play().catch(e => console.warn("Video play blocked:", e));
-
-            // AUDIO TRANSITION: Muffled -> Clear
-            if(filterNode && gainNode) {
-                // Animate Frequency: 400Hz -> 22000Hz (Clear)
-                gsap.to(filterNode.frequency, { value: 22000, duration: 2.0, ease: "power2.out" });
-                // Animate Volume: 0.2 -> 1.0 (Full)
-                gsap.to(gainNode.gain, { value: 1.0, duration: 2.0, ease: "power2.out" });
+            // Sound Clear
+            if(filterNode) {
+                gsap.to(filterNode.frequency, { value: 22000, duration: 2.0 });
+                gsap.to(gainNode.gain, { value: 1.0, duration: 2.0 });
             }
 
-            // Portal Animation
+            // Portal Open
             gsap.to(uniforms.u_openProgress, {
-                value: 1.0,
-                duration: 2.0,
-                ease: "power2.out",
+                value: 1.0, duration: 2.0, ease: "power2.inOut",
                 onComplete: () => {
                     closeBtn.style.pointerEvents = 'auto';
-                    gsap.to(closeBtn, {
-                        opacity: 1,
-                        duration: 0.5
-                    });
+                    gsap.to(closeBtn, { opacity: 1, y: 0, scale: 1, duration: 0.5 });
                 }
             });
         });
 
         closeBtn.addEventListener('click', () => {
-            // UI Animation
-            gsap.to(closeBtn, {
-                opacity: 0,
-                duration: 0.3,
-                onComplete: () => { closeBtn.style.pointerEvents = 'none'; }
-            });
+            gsap.to(closeBtn, { opacity: 0, y: 20, duration: 0.3, onComplete: () => closeBtn.style.pointerEvents = 'none' });
 
-            // AUDIO TRANSITION: Clear -> Muffled
-            if(filterNode && gainNode) {
-                // Animate Frequency: Current -> 400Hz (Muffled)
-                gsap.to(filterNode.frequency, { value: 400, duration: 1.5, ease: "power2.out" });
-                // Animate Volume: Current -> 0.2 (Quiet)
-                gsap.to(gainNode.gain, { value: 0.2, duration: 1.5, ease: "power2.out" });
+            // Sound Muffled
+            if(filterNode) {
+                gsap.to(filterNode.frequency, { value: 400, duration: 1.5 });
+                gsap.to(gainNode.gain, { value: 0.2, duration: 1.5 });
             }
 
-            // Portal Animation
+            // Portal Close
             gsap.to(uniforms.u_openProgress, {
-                value: 0.0,
-                duration: 1.5,
-                ease: "power2.out",
+                value: 0.0, duration: 1.5, ease: "power2.inOut",
                 onComplete: () => {
                     openBtn.style.pointerEvents = 'auto';
-                    gsap.to(openBtn, {
-                        opacity: 1,
-                        duration: 0.5
-                    });
+                    gsap.to(openBtn, { opacity: 1, y: 0, duration: 0.5 });
                     video.pause();
                 }
             });
         });
 
+        // --- 10. Animation Loop ---
         function animate(time) {
             requestAnimationFrame(animate);
-            if (video.readyState >= video.HAVE_CURRENT_DATA) {
-                videoTexture.needsUpdate = true;
-            }
+            if (video.readyState >= video.HAVE_CURRENT_DATA) videoTexture.needsUpdate = true;
             uniforms.iTime.value = time * 0.001;
             renderer.render(scene, camera);
         }
-
         animate(0);
 
     </script>
 </body>
-
 </html>
