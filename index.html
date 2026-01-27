@@ -176,7 +176,7 @@
             }
         });
 
-        // --- Fragment Shader (Fixed Aspect Ratio & Parallax) ---
+        // --- Fragment Shader (Fixed & Safe) ---
         const fragmentShader = `
             uniform vec3 iResolution;
             uniform float iTime;
@@ -201,50 +201,36 @@
                 vec2 fragCoord = gl_FragCoord.xy;
                 vec2 r = iResolution.xy;
                 
-                // [Portal UV] 모바일 스케일 및 정렬 적용
+                // 1. Portal Raymarching UV
                 vec2 uv = (fragCoord * 2.0 - r) / r.y;
                 uv /= uContentScale; 
 
-                // --- [Video UV: Fixed Cover Logic + Parallax] ---
+                // 2. Background Video UV (Cover Mode + Parallax)
+                vec2 vidUV = fragCoord / r;
+                vidUV -= 0.5; // Center
+                vidUV -= iMouse * 0.05; // Parallax
+                
                 float screenAspect = r.x / r.y;
-                float videoAspect = uVideoRatio;
+                float videoAspect = max(uVideoRatio, 0.1); // Safety
                 
-                // 1. 기본 Screen UV (0~1)
-                vec2 vidUV = fragCoord / r; 
-                
-                // 2. Parallax (카메라 움직임 반영)
-                // -0.5를 해 중심을 기준으로 움직이게 한 뒤 오프셋 적용
-                vidUV -= 0.5;
-                vidUV -= iMouse * 0.05; // 마우스에 따른 시차 움직임
-
-                // 3. Aspect Ratio Correction (Cover Mode)
-                // 화면 비율과 영상 비율을 비교하여, '더 넓은 쪽'을 기준으로 UV를 축소(Zoom-in)합니다.
-                // 이전 코드의 오류(나눗셈 역수)를 수정했습니다.
                 vec2 scale = vec2(1.0);
-                
                 if (screenAspect > videoAspect) {
-                    // 화면이 영상보다 더 와이드함 -> 가로는 맞추고 세로를 자름(확대)
-                    // UV y축 범위를 줄여야 영상이 확대됨
                     scale.y = videoAspect / screenAspect;
                 } else {
-                    // 화면이 영상보다 더 홀쭉함(모바일) -> 세로는 맞추고 가로를 자름(확대)
-                    // UV x축 범위를 줄여야 영상이 확대됨
                     scale.x = screenAspect / videoAspect;
                 }
                 
-                vidUV *= scale; // Scale 적용
-                vidUV += 0.5;   // 다시 0~1 좌표계로 복귀
+                vidUV *= scale;
+                vidUV += 0.5; // Restore Center
 
-                // 4. Texture Sampling
                 vec4 bgVideo = texture2D(uVideoTexture, vidUV);
-                
-                // 범위 밖 검은색 처리 (Clamp 효과)
+                // Clamp borders black
                 if(vidUV.x < 0.0 || vidUV.x > 1.0 || vidUV.y < 0.0 || vidUV.y > 1.0) {
                     bgVideo = vec4(0.0);
                 }
-                bgVideo *= 1.2; // 밝기 보정
+                bgVideo *= 1.2;
 
-                // --- [Raymarching Logic] ---
+                // 3. Raymarching Loop
                 vec3 cam_pos = vec3(0.0, 1.5, 10.0);
                 cam_pos.x += iMouse.x * 3.0;
                 cam_pos.y += iMouse.y * 1.5;
@@ -259,7 +245,8 @@
                 float radius = u_openProgress * 3.0;
                 float t = iTime;
                 
-                float d, z = 0.0;
+                float d = 0.0;
+                float z = 0.0;
                 vec3 p;
                 float D, D2;
                 float transmission = 1.0;
@@ -284,7 +271,10 @@
                     
                     d = .1 * abs(length(p - P) - radius) + abs(q.z)*.1;
                     
-                    o += transmission * ( (cos(d/.1 + vec4(1,2,2.5,0)) + 1.) / d * z ) 
+                    // Safety: Avoid division by zero
+                    float safeD = max(d, 0.0001);
+
+                    o += transmission * ( (cos(d/.1 + vec4(1,2,2.5,0)) + 1.) / safeD * z ) 
                        + 2. * (cos(-4.5*t + D/.1 + vec4(1,2,2.5,0)) + 1.) * exp2(-D*D) * z
                        + 10. * (cos(vec4(1,2,2.5,0)) + 1.) * exp2(-abs(D2)) * z;
                     
@@ -297,7 +287,7 @@
                 o *= 1. - length(uv * 0.3);
                 o = sqrt(1. - exp(-1.5 * o * o));
 
-                // 합성 (Compositing)
+                // 4. Composition
                 float mask = 0.0;
                 vec3 portalCenter = vec3(0, 2.3, 2.5);
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
@@ -420,4 +410,12 @@
             if (video.readyState >= video.HAVE_CURRENT_DATA) {
                 videoTexture.needsUpdate = true;
             }
-            uniforms.
+            uniforms.iTime.value = time * 0.001;
+            renderer.render(scene, camera);
+        }
+
+        animate(0);
+
+    </script>
+</body>
+</html>
