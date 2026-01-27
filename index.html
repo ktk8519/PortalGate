@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>The Gateway </title>
+    <title> The Gateway </title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background: #000;
-            touch-action: none;
+            touch-action: none; /* 모바일 드래그 시 스크롤 방지 */
             -webkit-user-select: none;
             user-select: none;
         }
@@ -17,7 +18,7 @@
         #canvas-container {
             width: 100%;
             height: 100vh;
-            height: 100dvh;
+            height: 100dvh; /* 모바일 주소창 대응 */
             position: absolute;
             top: 0;
             left: 0;
@@ -26,7 +27,7 @@
 
         #ui-container {
             position: absolute;
-            bottom: 15%;
+            bottom: 15%; /* 모바일 손가락 위치 고려 */
             left: 50%;
             transform: translateX(-50%);
             z-index: 10;
@@ -40,59 +41,74 @@
             pointer-events: auto;
             grid-area: 1 / 1;
             background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
             padding: 16px 48px;
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-radius: 50px;
+            transition: all 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 2px;
             outline: none;
-            transition: all 0.3s ease;
+            opacity: 1;
         }
 
-        #openBtn { color: #fff; }
-        #closeBtn { 
-            color: #ff8a8a; 
-            border-color: rgba(255, 100, 100, 0.3);
+        #openBtn {
+            color: #FFFFFF;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        #closeBtn {
+            color: #ff6b6b;
+            border-color: rgba(255, 107, 107, 0.4);
+            box-shadow: 0 0 20px rgba(188, 46, 46, 0.1);
             opacity: 0;
             pointer-events: none;
             transform: scale(0.9);
         }
+
+        button:active {
+            transform: scale(0.95);
+        }
     </style>
-    
     <script type="importmap">
-        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 </head>
-<body>
 
+<body>
     <div id="canvas-container"></div>
     <div id="ui-container">
         <button id="openBtn">Enter</button>
         <button id="closeBtn">Exit</button>
     </div>
 
-    <video id="video-source" src="./video_01.mp4" loop muted playsinline style="display:none"></video>
+    <video id="video-source" src="./video_01.mp4" loop muted playsinline 
+       style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
+    </video>
     <audio id="bgm-source" src="./music_01.mp3" loop crossorigin="anonymous"></audio>
 
     <script type="module">
         import * as THREE from 'three';
 
-        // --- 1. Config ---
+        // --- Configuration ---
         const config = {
             isMobile: () => window.innerWidth < 768,
-            mobileScale: 1.3,
+            mobileScale: 1.5, // 모바일에서 포탈 확대 배율
             desktopScale: 1.0
         };
 
-        // --- 2. Audio Setup ---
+        // --- Audio Setup (Web Audio API) ---
         const audioEl = document.getElementById('bgm-source');
         let audioCtx, sourceNode, filterNode, gainNode;
         let isAudioInit = false;
@@ -101,10 +117,12 @@
             if (isAudioInit) return;
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
+            
             sourceNode = audioCtx.createMediaElementSource(audioEl);
             filterNode = audioCtx.createBiquadFilter();
             gainNode = audioCtx.createGain();
 
+            // 먹먹한 효과 (Low Pass)
             filterNode.type = 'lowpass';
             filterNode.frequency.value = 400; 
             gainNode.gain.value = 0.2; 
@@ -117,35 +135,39 @@
             isAudioInit = true;
         }
 
-        // --- 3. Three.js Setup (Fixed) ---
+        // --- Scene Setup ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        
-        // [수정 1] 카메라 설정
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 10); // Far plane 넉넉하게
-        camera.position.z = 1; // [중요] 카메라를 평면 뒤로 물러나게 함 (Clipping 방지)
-        
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); // 기존 카메라 설정 유지
+
         const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
+        // [중요] 모바일 고해상도 대응을 위한 PixelRatio 설정
+        const pixelRatio = Math.min(window.devicePixelRatio, 2);
+        renderer.setPixelRatio(pixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
-        // --- 4. Video Texture ---
+        // --- Video Texture ---
         const video = document.getElementById('video-source');
         const videoTexture = new THREE.VideoTexture(video);
         videoTexture.colorSpace = THREE.SRGBColorSpace;
         videoTexture.minFilter = THREE.LinearFilter;
         videoTexture.magFilter = THREE.LinearFilter;
 
-        // --- 5. Uniforms ---
+        // --- Uniforms ---
         const uniforms = {
             iTime: { value: 0 },
-            iResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+            // [핵심 수정] 쉐이더에 전달하는 해상도에 픽셀 비율을 곱해줌 -> 중앙 정렬 해결
+            iResolution: { value: new THREE.Vector3(
+                window.innerWidth * pixelRatio, 
+                window.innerHeight * pixelRatio, 
+                1
+            )},
             iMouse: { value: new THREE.Vector2(0, 0) },
-            u_openProgress: { value: 0.0 }, // 0.0일 때도 링이 보이도록 쉐이더에서 처리
+            u_openProgress: { value: 0.0 },
             uVideoTexture: { value: videoTexture },
             uVideoRatio: { value: 1.77 },
-            uScale: { value: 1.0 }
+            uContentScale: { value: 1.0 } // 모바일 확대용
         };
 
         video.addEventListener('loadedmetadata', () => {
@@ -154,104 +176,129 @@
             }
         });
 
-        // --- 6. Shader (Robust Fix) ---
-        const vertexShader = `
-            varying vec2 vUv;
-            void main() {
-                // [수정 2] UV 좌표 강제 계산 (안전장치)
-                // PlaneGeometry 좌표(-1~1)를 0~1로 변환
-                vUv = position.xy * 0.5 + 0.5; 
-                gl_Position = vec4(position, 1.0);
-            }
-        `;
-
-        const fragmentShader = `
-            varying vec2 vUv;
+        // --- Resize Handler ---
+        function onResize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
             
-            uniform vec2 iResolution;
+            renderer.setSize(width, height);
+            
+            // 해상도 업데이트 시 픽셀 비율 반드시 적용
+            const pr = renderer.getPixelRatio();
+            uniforms.iResolution.value.set(width * pr, height * pr, 1);
+            
+            // 모바일이면 컨텐츠 확대
+            uniforms.uContentScale.value = config.isMobile() ? config.mobileScale : config.desktopScale;
+        }
+        window.addEventListener('resize', onResize);
+        onResize(); // 초기 실행
+
+        // --- Shader (기존 로직 + 비율 보정) ---
+        const fragmentShader = `
+            uniform vec3 iResolution;
             uniform float iTime;
             uniform vec2 iMouse;
             uniform float u_openProgress;
             uniform sampler2D uVideoTexture;
             uniform float uVideoRatio;
-            uniform float uScale;
+            uniform float uContentScale;
 
+            float pi = 3.14159265;
+
+            // 회전 함수
             mat2 rot(float a) {
                 float c = cos(a), s = sin(a);
                 return mat2(c, s, -s, c);
             }
 
             vec3 triwave(vec3 x) {
-                float pi = 3.14159265;
                 return abs(fract(.5*x/pi-.25)-.5)*4.-1.;
             }
 
             void main() {
-                // UV Normalization
-                vec2 uv = vUv - 0.5;
-                float screenAspect = iResolution.x / iResolution.y;
-                uv.x *= screenAspect;
-                uv /= uScale;
-
-                // Video Texture Mapping (Cover)
-                vec2 vidUV = vUv - 0.5;
-                vidUV -= iMouse * 0.05; // Parallax
-                float vidAspect = uVideoRatio;
-                vec2 scaleFactor = vec2(1.0);
+                // [기존 좌표계 유지하되 비율 문제 해결]
+                vec2 fragCoord = gl_FragCoord.xy;
+                vec2 r = iResolution.xy;
                 
-                if (screenAspect > vidAspect) {
-                    scaleFactor.y = screenAspect / vidAspect;
+                // 화면 UV (0~1)
+                vec2 screenUV = fragCoord / r;
+                
+                // --- 1. 비디오 배경 (Cover Mode 적용) ---
+                // 비디오가 찌그러지지 않게 화면 비율에 맞춰 자름
+                float screenAspect = r.x / r.y;
+                float videoAspect = uVideoRatio;
+                
+                vec2 vidUV = screenUV - 0.5; // 중심 기준
+                vidUV -= iMouse * 0.05; // 약간의 시차 효과
+                
+                vec2 scaleFactor = vec2(1.0);
+                if (screenAspect > videoAspect) {
+                    scaleFactor.y = screenAspect / videoAspect;
                 } else {
-                    scaleFactor.x = vidAspect / screenAspect;
+                    scaleFactor.x = videoAspect / screenAspect;
                 }
-                vidUV = vidUV * scaleFactor + 0.5;
+                vidUV = vidUV * scaleFactor + 0.5; // 원래 좌표로 복귀
 
                 vec4 bgVideo = texture2D(uVideoTexture, vidUV);
-                if(vidUV.x < 0.0 || vidUV.x > 1.0 || vidUV.y < 0.0 || vidUV.y > 1.0) bgVideo = vec4(0.0);
+                // 범위 밖 검은색
+                if(vidUV.x < 0.0 || vidUV.x > 1.0 || vidUV.y < 0.0 || vidUV.y > 1.0) {
+                    bgVideo = vec4(0.0);
+                }
                 bgVideo *= 1.2;
 
-                // Raymarching
+                // --- 2. 레이마칭 (포탈) ---
+                // uContentScale로 모바일에서 줌인/줌아웃 조절
+                vec2 uv = (fragCoord * 2.0 - r) / r.y;
+                uv /= uContentScale; 
+
+                // 카메라 설정
                 vec3 cam_pos = vec3(0.0, 1.5, 10.0);
-                cam_pos.x += iMouse.x * 4.0;
-                cam_pos.y += iMouse.y * 2.0;
+                cam_pos.x += iMouse.x * 3.0;
+                cam_pos.y += iMouse.y * 1.5;
                 
                 vec3 rd = normalize(vec3(uv, -1.4));
-                rd.xz *= rot(iMouse.x * 0.3);
-                rd.yz *= rot(iMouse.y * 0.2);
+                // 마우스 회전
+                rd.xz *= rot(iMouse.x * 0.2);
+                rd.yz *= rot(iMouse.y * 0.1);
+
+                // 부유 효과
                 cam_pos += vec3(0.5*cos(iTime*0.25), 0, 0.5*sin(iTime*0.25));
 
                 vec4 o = vec4(0.0);
                 vec3 P = vec3(0, 2.3, 2.5);
+                float radius = u_openProgress * 3.0;
                 float t = iTime;
                 float d, z = 0.;
                 
-                // [수정 3] 기본 반지름 확보 (닫힌 상태에서도 보이게)
-                float radius = 0.05 + u_openProgress * 3.0;
-                
-                for(float i = 0.; i < 60.; i++) {
+                // 레이마칭 루프 (기존 로직 복구)
+                for(float i=0.; i<65.; i++) {
                     if(z > 100.) break;
                     vec3 p = z * rd + cam_pos;
-                    float D = length(p - P) - radius;
                     
-                    vec4 wave = (cos(d/.1 + vec4(1,2,2.5,0)) + 1.) / d * z;
-                    vec4 ring = 2. * (cos(-4.5*t + D/.1 + vec4(1,2,2.5,0)) + 1.) * exp2(-D*D) * z;
+                    float D = length(p-P) - radius;
+                    // 빛 고리 계산
+                    o += ( (cos(d/.1 + vec4(1,2,2.5,0)) + 1.) / d * z ) 
+                       + 2. * (cos(-4.5*t + D/.1 + vec4(1,2,2.5,0)) + 1.) * exp2(-D*D) * z;
                     
-                    o += (wave + ring);
-                    if(p.y < -1.0) p.y = abs(p.y + 1.0) - 1.0;
+                    // 바닥 반사
+                    if(p.y < -1.0) {
+                        p.y = abs(p.y + 1.0) - 1.0;
+                    }
                     p.y += .8 * sin(p.z*2. + t*2. - d*12.) * .3;
-                    
+
                     vec3 q = p - P;
-                    q.xy *= rot(2.5 * t - d * 14.);
-                    for(float j=1.; j<5.; j++) q += triwave((q*j + t*2.)).yzx / j;
+                    q.xy *= rot(2.5*t - d*14.);
+                    for(float j=1.; j<9.; j++) q += triwave((q*j + t*2.)).yzx / j;
                     
                     d = .1 * abs(length(p - P) - radius) + abs(q.z)*.1;
                     z += max(0.05, min(abs(p.y+1.0)*.4+.03, d));
                 }
 
                 o = o / 1e4;
-                o *= 1. - length(vUv - 0.5) * 0.5;
+                o *= 1. - length(uv * 0.3); // 비네팅
                 o = sqrt(1. - exp(-1.5 * o * o));
 
+                // 합성
                 float mask = 0.0;
                 vec3 portalCenter = vec3(0, 2.3, 2.5);
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
@@ -259,7 +306,7 @@
                 if (planeDist > 0.0) {
                     vec3 hitPos = cam_pos + rd * planeDist;
                     float distFromCenter = length(hitPos.xy - portalCenter.xy);
-                    mask = smoothstep(radius, radius - 0.1, distFromCenter);
+                    mask = smoothstep(radius, radius - 0.2, distFromCenter);
                 }
                 
                 gl_FragColor = o + (bgVideo * mask);
@@ -268,26 +315,17 @@
 
         const material = new THREE.ShaderMaterial({
             uniforms: uniforms,
-            vertexShader: vertexShader,
-            fragmentShader: fragmentShader
+            fragmentShader: fragmentShader,
+            vertexShader: `void main() { gl_Position = vec4( position, 1.0 ); }`
         });
 
         const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
         scene.add(plane);
 
-        // --- 7. Resize & Interaction ---
-        function onResize() {
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-            renderer.setSize(w, h);
-            uniforms.iResolution.value.set(w, h);
-            uniforms.uScale.value = config.isMobile() ? config.mobileScale : config.desktopScale;
-        }
-        window.addEventListener('resize', onResize);
-        onResize();
-
-        // Interaction
+        // --- Interaction (Touch & Mouse) ---
         let isDragging = false;
+        
+        // Touch (Mobile)
         document.addEventListener('touchstart', (e) => { isDragging = true; }, {passive: false});
         document.addEventListener('touchmove', (e) => {
             if (!isDragging) return;
@@ -296,10 +334,13 @@
             const y = -(touch.clientY / window.innerHeight) * 2 + 1;
             gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 0.5, ease: "power1.out" });
         }, {passive: false});
+        
         document.addEventListener('touchend', () => {
             isDragging = false;
             gsap.to(uniforms.iMouse.value, { x: 0, y: 0, duration: 1.5, ease: "elastic.out(1, 0.5)" });
         });
+
+        // Mouse (PC)
         document.addEventListener('mousemove', (e) => {
             if (config.isMobile()) return;
             const x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -307,19 +348,22 @@
             gsap.to(uniforms.iMouse.value, { x: x, y: y, duration: 1.0, ease: "power2.out" });
         });
 
-        // --- 8. Buttons ---
+        // --- Buttons & Animations ---
         const openBtn = document.getElementById('openBtn');
         const closeBtn = document.getElementById('closeBtn');
 
         openBtn.addEventListener('click', () => {
             initAudio();
             if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            
             gsap.to(openBtn, { opacity: 0, y: 20, duration: 0.3, onComplete: () => openBtn.style.pointerEvents = 'none' });
             video.play().catch(() => {});
+            
             if(filterNode) {
                 gsap.to(filterNode.frequency, { value: 22000, duration: 2.0 });
                 gsap.to(gainNode.gain, { value: 1.0, duration: 2.0 });
             }
+            
             gsap.to(uniforms.u_openProgress, {
                 value: 1.0, duration: 2.0, ease: "power2.inOut",
                 onComplete: () => {
@@ -331,10 +375,12 @@
 
         closeBtn.addEventListener('click', () => {
             gsap.to(closeBtn, { opacity: 0, y: 20, duration: 0.3, onComplete: () => closeBtn.style.pointerEvents = 'none' });
+            
             if(filterNode) {
                 gsap.to(filterNode.frequency, { value: 400, duration: 1.5 });
                 gsap.to(gainNode.gain, { value: 0.2, duration: 1.5 });
             }
+            
             gsap.to(uniforms.u_openProgress, {
                 value: 0.0, duration: 1.5, ease: "power2.inOut",
                 onComplete: () => {
