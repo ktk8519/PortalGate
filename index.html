@@ -176,7 +176,7 @@
             }
         });
 
-        // --- Fragment Shader (Adjusted for Fit-Height & Centering) ---
+        // --- Fragment Shader (Perfectly Aligned & No Stretch) ---
         const fragmentShader = `
             uniform vec3 iResolution;
             uniform float iTime;
@@ -201,43 +201,46 @@
                 vec2 fragCoord = gl_FragCoord.xy;
                 vec2 r = iResolution.xy;
                 
-                // 1. Raymarching UV (Scene)
+                // [1. Unified Coordinate System]
+                // 화면 중앙을 (0,0)으로 하는 정규화 좌표 'uv'를 생성합니다.
+                // 이 좌표는 3D 포탈과 비디오 텍스처 모두에 공통으로 사용됩니다.
+                // 따라서 포탈과 비디오가 어긋날 일이 없습니다.
                 vec2 uv = (fragCoord * 2.0 - r) / r.y;
-                uv /= uContentScale; 
+                uv /= uContentScale; // 모바일 스케일 대응
 
-                // 2. Video UV: "Fit Height" Logic
-                // 영상의 높이를 화면(포탈) 높이에 고정하고, 좌우 길이는 비율에 따라 자연스럽게 둡니다.
-                vec2 vidUV = fragCoord / r;
-                vidUV -= 0.5; // Center
-                vidUV -= iMouse * 0.05; // Parallax
+                // [2. Video Texture Mapping (Distortion Fix)]
+                // 비디오 텍스처를 위한 좌표 'vidUV'를 별도로 계산하지 않고 'uv'에서 파생시킵니다.
+                vec2 vidUV = uv;
                 
-                float screenAspect = r.x / r.y;
-                float videoAspect = max(uVideoRatio, 0.1); 
+                // Parallax (시차 효과) 적용
+                vidUV -= iMouse * 0.05;
 
-                // [수정됨] Fit-Height Algorithm
-                // Y축 스케일은 1.0으로 고정(높이 맞춤)하고, 
-                // X축만 비율 차이만큼 조정하여 영상이 찌그러지지 않게 함.
-                // 영상이 화면보다 넓으면 좌우가 잘리고, 화면보다 좁으면 영상이 작게 나옵니다.
-                vec2 scale = vec2(1.0);
-                scale.x = videoAspect / screenAspect; 
-                
-                vidUV *= scale;
-                vidUV += 0.5; 
+                // [중요] Aspect Ratio Correction
+                // 비디오가 가로로 길 경우(uVideoRatio > 1), 텍스처 좌표의 X축을 나누어주어야
+                // 찌그러지지 않고 원래 비율대로 넓게 펴집니다.
+                float safeRatio = max(uVideoRatio, 0.1); // 0 나누기 방지
+                vidUV.x /= safeRatio;
 
+                // Scale Adjustment (Portal Fit)
+                // 비디오를 포탈 구멍 크기에 맞게 줌인/줌아웃 합니다.
+                // 숫자가 작을수록 비디오가 확대(Zoom-in) 됩니다.
+                vidUV *= 0.45; 
+
+                // Center (0,0 -> 0.5, 0.5)
+                vidUV += 0.5;
+
+                // Texture Sampling & Clamp
                 vec4 bgVideo = texture2D(uVideoTexture, vidUV);
-                
-                // Texture Clamp (범위 밖은 검은색)
                 if(vidUV.x < 0.0 || vidUV.x > 1.0 || vidUV.y < 0.0 || vidUV.y > 1.0) {
                     bgVideo = vec4(0.0);
                 }
-                bgVideo *= 1.2;
+                bgVideo *= 1.2; // 밝기 보정
 
-                // 3. Raymarching Loop
-                // [수정됨] Camera Centering
-                // Portal P가 y=2.3에 있으므로, Camera y도 2.3으로 설정하여 정확히 수평을 맞춤.
-                // 이렇게 하면 모바일에서도 포탈이 정확히 화면 중앙에 위치합니다.
+
+                // [3. Raymarching Scene]
+                // 포탈의 높이(P.y)와 카메라의 높이(cam_pos.y)를 일치시켜(2.3)
+                // 모바일/PC 어디서든 정확히 화면 정중앙에 오도록 합니다.
                 vec3 cam_pos = vec3(0.0, 2.3, 10.0); 
-                
                 cam_pos.x += iMouse.x * 3.0;
                 cam_pos.y += iMouse.y * 1.5;
                 
@@ -245,11 +248,10 @@
                 rd.xz *= rot(iMouse.x * 0.2);
                 rd.yz *= rot(iMouse.y * 0.1);
                 
-                // 카메라의 미세한 움직임 (Floating)
                 cam_pos += vec3(0.5*cos(iTime*0.25), 0, 0.5*sin(iTime*0.25));
 
                 vec4 o = vec4(0.0);
-                vec3 P = vec3(0, 2.3, 2.5); // 포탈 중심점 (높이 2.3)
+                vec3 P = vec3(0, 2.3, 2.5); // 포탈 중심
                 float radius = u_openProgress * 3.0;
                 float t = iTime;
                 
@@ -294,7 +296,7 @@
                 o *= 1. - length(uv * 0.3);
                 o = sqrt(1. - exp(-1.5 * o * o));
 
-                // 4. Composition
+                // [4. Composition]
                 float mask = 0.0;
                 vec3 portalCenter = vec3(0, 2.3, 2.5);
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
