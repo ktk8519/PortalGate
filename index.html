@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Gateway - Fully Fixed</title>
+    <title>The Gateway - Final Fix</title>
     <style>
         body {
             margin: 0;
@@ -23,9 +23,10 @@
             z-index: 1;
         }
 
+        /* UI 컨테이너는 화면 중앙 하단에 고정 */
         #ui-container {
             position: absolute;
-            bottom: 30px;
+            bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 2;
@@ -34,6 +35,7 @@
             pointer-events: none;
         }
 
+        /* 버튼 자체의 트랜지션 및 스타일 */
         button {
             grid-area: 1 / 1;
             pointer-events: auto;
@@ -48,7 +50,8 @@
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-radius: 8px;
-            transition: transform 0.3s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+            /* translateX 제거하여 왼쪽으로 튀는 현상 방지 */
+            transition: transform 0.2s ease, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 2px;
             outline: none;
@@ -69,15 +72,16 @@
             pointer-events: none;
         }
 
+        /* translateX 제거: Y축으로만 살짝 움직이도록 수정 */
         button:hover {
             background: rgba(255, 255, 255, 0.25);
             border-color: rgba(255, 255, 255, 0.5);
             box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px) translateX(-50%);
+            transform: translateY(-3px); 
         }
 
         button:active {
-            transform: translateY(1px) translateX(-50%);
+            transform: translateY(1px);
         }
     </style>
     <script type="importmap">
@@ -101,7 +105,7 @@
        style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
     </video>
 
-    <audio id="bgm-source" src="./music_01.mp3" loop crossorigin="anonymous"></audio>
+    <audio id="bgm-source" src="./music_01.mp3" loop></audio>
 
     <script type="module">
         import * as THREE from 'three';
@@ -109,10 +113,10 @@
         // --- Audio Setup ---
         const audioEl = document.getElementById('bgm-source');
         let audioCtx, sourceNode, filterNode, gainNode;
-        let isAudioInitialized = false;
 
+        // 오디오 초기화를 버튼 클릭 시점에 강제 실행하기 위한 함수
         function initAudio() {
-            if (isAudioInitialized) return;
+            if (audioCtx) return; // 이미 초기화되었다면 패스
             
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
@@ -129,19 +133,7 @@
             sourceNode.connect(filterNode);
             filterNode.connect(gainNode);
             gainNode.connect(audioCtx.destination);
-
-            audioEl.play().catch(e => console.log("Waiting for interaction to play audio"));
-            isAudioInitialized = true;
         }
-
-        const resumeAudio = () => {
-            initAudio();
-            if (audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-        };
-        document.body.addEventListener('click', resumeAudio, { once: true });
-        document.body.addEventListener('touchstart', resumeAudio, { once: true });
 
 
         // --- Three.js Scene & Camera ---
@@ -152,9 +144,8 @@
         const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         
-        // 디바이스 픽셀 비율 저장 (최대 2로 제한하여 성능 확보)
-        const pixelRatio = Math.min(window.devicePixelRatio, 2);
-        renderer.setPixelRatio(pixelRatio); 
+        // 💡 핵심 수정: 픽셀 비율을 무조건 1로 고정하여 좌표계 붕괴 및 퍼포먼스 저하 방지
+        renderer.setPixelRatio(1); 
         container.appendChild(renderer.domElement);
 
         // --- Video Texture Setup ---
@@ -168,19 +159,17 @@
         // --- Uniforms ---
         const uniforms = {
             iTime: { value: 0 },
-            iResolution: { value: new THREE.Vector3(window.innerWidth * pixelRatio, window.innerHeight * pixelRatio, 1) },
+            iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1) },
             iMouse: { value: new THREE.Vector2(0, 0) },
             u_openProgress: { value: 0.0 },
             uVideoTexture: { value: videoTexture },
             uVideoRatio: { value: 1.77 }, 
-            uContentScale: { value: 1.0 }, 
             uIsMobile: { value: 0.0 } 
         };
 
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth && video.videoHeight) {
-                const ratio = video.videoWidth / video.videoHeight;
-                uniforms.uVideoRatio.value = ratio;
+                uniforms.uVideoRatio.value = video.videoWidth / video.videoHeight;
             }
         });
 
@@ -192,7 +181,6 @@
             uniform float u_openProgress;
             uniform sampler2D uVideoTexture;
             uniform float uVideoRatio;
-            uniform float uContentScale;
             uniform float uIsMobile;
 
             float pi = 3.14159265;
@@ -210,20 +198,26 @@
                 vec2 fragCoord = gl_FragCoord.xy;
                 vec2 r = iResolution.xy;
                 
-                // [1. 좌표계 중앙 정렬]
+                // [1. 좌표계 정규화]
                 vec2 uv = (fragCoord * 2.0 - r) / r.y;
-                uv /= uContentScale; 
 
-                // [2. 비디오 텍스처 매핑]
+                // [2. 화면 크기에 따른 Raymarching 줌 아웃 (모바일 대응)]
+                vec2 sceneUV = uv;
+                // 모바일 세로 화면일 경우 화면 밖으로 잘리지 않게 전체 씬을 줌아웃
+                if (uIsMobile > 0.5) {
+                    sceneUV *= 1.4; 
+                }
+
+                // [3. 비디오 텍스처 매핑 (비율 및 중앙 정렬 완벽 보정)]
                 vec2 vidUV = uv;
-                vidUV -= iMouse * 0.05;
+                vidUV -= iMouse * 0.05; // 시차 효과
 
-                // 비디오 찌그러짐 방지 및 스케일링
-                float safeRatio = max(uVideoRatio, 0.01); 
-                float videoScale = uIsMobile > 0.5 ? 0.35 : 0.45; 
-                
+                // 모바일에서는 영상 스케일을 다르게 적용하여 구멍에 맞춤
+                float videoScale = uIsMobile > 0.5 ? 0.6 : 0.45; 
                 vidUV *= videoScale;
-                vidUV.x /= safeRatio; // 비율 복원
+                
+                // 가로 비율 보정
+                vidUV.x /= max(uVideoRatio, 0.01); 
                 vidUV += 0.5; // 중앙 정렬
 
                 vec4 bgVideo = texture2D(uVideoTexture, vidUV);
@@ -232,17 +226,15 @@
                 }
                 bgVideo.rgb *= 1.2; 
 
-                // [3. Raymarching Scene]
-                // 모바일/PC 포탈 높이 분기 처리 (모바일은 약간 더 낮춰서 시각적 중앙에 배치)
-                float baseHeight = uIsMobile > 0.5 ? 1.2 : 2.3;
-
-                vec3 cam_pos = vec3(0.0, baseHeight, 10.0); 
-                vec3 P = vec3(0, baseHeight, 2.5); 
+                // [4. Raymarching Scene (포탈 중앙 고정)]
+                vec3 P = vec3(0.0, 2.3, 2.5); // 포탈 중심 좌표 (고정)
+                vec3 cam_pos = vec3(0.0, 2.3, 10.0); // 카메라 중심 좌표 (고정)
 
                 cam_pos.x += iMouse.x * 3.0;
                 cam_pos.y += iMouse.y * 1.5;
                 
-                vec3 rd = normalize(vec3(uv, -1.4));
+                // 계산된 sceneUV를 바탕으로 광선 발사
+                vec3 rd = normalize(vec3(sceneUV, -1.4));
                 rd.xz *= rot(iMouse.x * 0.2);
                 rd.yz *= rot(iMouse.y * 0.1);
                 
@@ -250,9 +242,8 @@
 
                 vec4 o = vec4(0.0);
                 
-                // 포탈 크기 분기 처리
-                float radiusScale = uIsMobile > 0.5 ? 3.5 : 3.0;
-                float radius = u_openProgress * radiusScale; 
+                // 포탈 열림 반경
+                float radius = u_openProgress * 3.0; 
 
                 float t = iTime;
                 float d = 0.0;
@@ -292,17 +283,16 @@
                 }
 
                 o = o / 1e4;
-                o *= 1. - length(uv * 0.3); 
+                o *= 1. - length(sceneUV * 0.3); 
                 o = sqrt(1. - exp(-1.5 * o * o)); 
 
-                // [4. Composition]
+                // [5. Composition]
                 float mask = 0.0;
-                vec3 portalCenter = vec3(0, baseHeight, 2.5); 
-                float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
+                float planeDist = (P.z - cam_pos.z) / rd.z;
                 
                 if (planeDist > 0.0) {
                     vec3 hitPos = cam_pos + rd * planeDist;
-                    float distFromCenter = length(hitPos.xy - portalCenter.xy);
+                    float distFromCenter = length(hitPos.xy - P.xy);
                     mask = smoothstep(radius, radius - 0.2, distFromCenter);
                 }
                 
@@ -355,12 +345,11 @@
             const height = window.innerHeight;
             renderer.setSize(width, height);
             
-            // 💡 중요: 기기 픽셀 비율을 곱하여 쉐이더 해상도 업데이트 (어긋남 방지)
-            uniforms.iResolution.value.set(width * pixelRatio, height * pixelRatio, 1);
+            // 💡 해상도 값은 반드시 CSS 픽셀 단위로 통일 (픽셀 비율 1로 고정했으므로)
+            uniforms.iResolution.value.set(width, height, 1);
 
             const isMobile = width < 768 || height > width;
             uniforms.uIsMobile.value = isMobile ? 1.0 : 0.0;
-            uniforms.uContentScale.value = isMobile ? 0.7 : 1.0; 
         }
 
         window.addEventListener('resize', updateSize);
@@ -371,15 +360,19 @@
         const closeBtn = document.getElementById('closeBtn');
 
         openBtn.addEventListener('click', () => {
-            resumeAudio(); 
+            // 💡 버튼을 직접 누르는 즉시 오디오 문맥을 활성화 및 재생
+            initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            audioEl.play().catch(e => console.error("Audio block:", e));
+            video.play().catch(e => console.error("Video block:", e));
 
             gsap.to(openBtn, {
                 opacity: 0,
                 duration: 0.3,
                 onComplete: () => { openBtn.style.pointerEvents = 'none'; }
             });
-
-            video.play().catch(e => console.warn("Video play blocked:", e));
 
             if(filterNode && gainNode) {
                 gsap.to(filterNode.frequency, { value: 22000, duration: 2.0, ease: "power2.out" });
