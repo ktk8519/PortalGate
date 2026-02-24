@@ -4,13 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Gateway - Mobile Fixed</title>
+    <title>The Gateway - Fully Fixed</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background: #000;
-            /* 모바일에서 불필요한 스크롤 및 새로고침 방지 */
             overscroll-behavior: none;
             touch-action: none;
         }
@@ -32,12 +31,12 @@
             z-index: 2;
             display: grid;
             place-items: center;
-            pointer-events: none; /* 컨테이너 자체는 클릭 통과 */
+            pointer-events: none;
         }
 
         button {
             grid-area: 1 / 1;
-            pointer-events: auto; /* 버튼만 클릭 가능 */
+            pointer-events: auto;
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
@@ -122,7 +121,6 @@
             filterNode = audioCtx.createBiquadFilter();
             gainNode = audioCtx.createGain();
 
-            // 초기 상태: Lowpass 필터 적용 + 낮은 볼륨
             filterNode.type = 'lowpass';
             filterNode.frequency.value = 400; 
             filterNode.Q.value = 1;
@@ -132,12 +130,10 @@
             filterNode.connect(gainNode);
             gainNode.connect(audioCtx.destination);
 
-            // 사용자 상호작용 시 재생 시작
             audioEl.play().catch(e => console.log("Waiting for interaction to play audio"));
             isAudioInitialized = true;
         }
 
-        // 첫 클릭/터치 시 오디오 컨텍스트 초기화 (브라우저 정책 대응)
         const resumeAudio = () => {
             initAudio();
             if (audioCtx && audioCtx.state === 'suspended') {
@@ -151,13 +147,14 @@
         // --- Three.js Scene & Camera ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        // 2D 쉐이더를 화면에 꽉 차게 보여주기 위한 정사영 카메라
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
         const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
         renderer.outputColorSpace = THREE.SRGBColorSpace;
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 성능을 위해 픽셀 비율 제한
+        
+        // 디바이스 픽셀 비율 저장 (최대 2로 제한하여 성능 확보)
+        const pixelRatio = Math.min(window.devicePixelRatio, 2);
+        renderer.setPixelRatio(pixelRatio); 
         container.appendChild(renderer.domElement);
 
         // --- Video Texture Setup ---
@@ -166,30 +163,28 @@
         videoTexture.colorSpace = THREE.SRGBColorSpace;
         videoTexture.minFilter = THREE.LinearFilter;
         videoTexture.magFilter = THREE.LinearFilter;
-        videoTexture.generateMipmaps = false; // 비디오 텍스처는 밉맵핑 불필요
+        videoTexture.generateMipmaps = false;
 
         // --- Uniforms ---
         const uniforms = {
             iTime: { value: 0 },
-            iResolution: { value: new THREE.Vector3(window.innerWidth, window.innerHeight, 1) },
+            iResolution: { value: new THREE.Vector3(window.innerWidth * pixelRatio, window.innerHeight * pixelRatio, 1) },
             iMouse: { value: new THREE.Vector2(0, 0) },
             u_openProgress: { value: 0.0 },
             uVideoTexture: { value: videoTexture },
-            uVideoRatio: { value: 1.77 }, // 기본 16:9 비율
-            uContentScale: { value: 1.0 },  // 전체적인 콘텐츠 스케일
-            uIsMobile: { value: 0.0 } // 모바일 환경 감지 플래그 추가
+            uVideoRatio: { value: 1.77 }, 
+            uContentScale: { value: 1.0 }, 
+            uIsMobile: { value: 0.0 } 
         };
 
-        // 비디오 메타데이터 로드 후 정확한 비율 설정
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth && video.videoHeight) {
                 const ratio = video.videoWidth / video.videoHeight;
                 uniforms.uVideoRatio.value = ratio;
-                console.log(`Video aspect ratio set to: ${ratio}`);
             }
         });
 
-        // --- Fragment Shader (모바일 대응 수정됨) ---
+        // --- Fragment Shader ---
         const fragmentShader = `
             uniform vec3 iResolution;
             uniform float iTime;
@@ -198,7 +193,7 @@
             uniform sampler2D uVideoTexture;
             uniform float uVideoRatio;
             uniform float uContentScale;
-            uniform float uIsMobile; // 모바일 플래그
+            uniform float uIsMobile;
 
             float pi = 3.14159265;
 
@@ -217,79 +212,60 @@
                 
                 // [1. 좌표계 중앙 정렬]
                 vec2 uv = (fragCoord * 2.0 - r) / r.y;
-                
-                // 전체적인 콘텐츠 스케일 조정
                 uv /= uContentScale; 
 
-                // [2. 비디오 텍스처 매핑 및 비율 보정]
+                // [2. 비디오 텍스처 매핑]
                 vec2 vidUV = uv;
-                
-                // Parallax (마우스/터치 시차 효과) 적용
                 vidUV -= iMouse * 0.05;
 
-                // [중요] Aspect Ratio Correction (찌그러짐 방지)
+                // 비디오 찌그러짐 방지 및 스케일링
                 float safeRatio = max(uVideoRatio, 0.01); 
-                vidUV.x /= safeRatio;
-
-                // **모바일/PC 비디오 스케일 분기 처리**
-                // 모바일에서는 화면이 좁으므로 좀 더 줌인(작은 값)하여 보여줍니다.
                 float videoScale = uIsMobile > 0.5 ? 0.35 : 0.45; 
+                
                 vidUV *= videoScale;
+                vidUV.x /= safeRatio; // 비율 복원
+                vidUV += 0.5; // 중앙 정렬
 
-                // Center (0,0 -> 0.5, 0.5로 이동하여 텍스처 샘플링 중앙 정렬)
-                vidUV += 0.5;
-
-                // Texture Sampling & Clamp (영역 밖은 검은색 처리)
                 vec4 bgVideo = texture2D(uVideoTexture, vidUV);
                 if(vidUV.x < 0.0 || vidUV.x > 1.0 || vidUV.y < 0.0 || vidUV.y > 1.0) {
                     bgVideo = vec4(0.0);
                 }
-                bgVideo.rgb *= 1.2; // 약간 밝게 보정
+                bgVideo.rgb *= 1.2; 
 
-
-                // [3. Raymarching Scene (포탈 이펙트)]
-                
-                // **모바일/PC 포탈 높이 분기 처리**
-                // 모바일 세로 화면에서는 높이를 낮춰야 중앙에 가깝게 보입니다.
-                float baseHeight = uIsMobile > 0.5 ? 1.5 : 2.3;
+                // [3. Raymarching Scene]
+                // 모바일/PC 포탈 높이 분기 처리 (모바일은 약간 더 낮춰서 시각적 중앙에 배치)
+                float baseHeight = uIsMobile > 0.5 ? 1.2 : 2.3;
 
                 vec3 cam_pos = vec3(0.0, baseHeight, 10.0); 
-                vec3 P = vec3(0, baseHeight, 2.5); // 포탈 중심
+                vec3 P = vec3(0, baseHeight, 2.5); 
 
-                // 마우스/터치 인터랙션 적용
                 cam_pos.x += iMouse.x * 3.0;
                 cam_pos.y += iMouse.y * 1.5;
                 
-                // Ray direction 설정
                 vec3 rd = normalize(vec3(uv, -1.4));
                 rd.xz *= rot(iMouse.x * 0.2);
                 rd.yz *= rot(iMouse.y * 0.1);
                 
-                // 카메라 약간 흔들림 효과
                 cam_pos += vec3(0.5*cos(iTime*0.25), 0, 0.5*sin(iTime*0.25));
 
                 vec4 o = vec4(0.0);
-
-                // **모바일/PC 포탈 크기 분기 처리**
-                // 모바일에서는 포탈을 더 크게 키웁니다.
-                float radiusScale = uIsMobile > 0.5 ? 4.0 : 3.0;
+                
+                // 포탈 크기 분기 처리
+                float radiusScale = uIsMobile > 0.5 ? 3.5 : 3.0;
                 float radius = u_openProgress * radiusScale; 
 
                 float t = iTime;
-                
                 float d = 0.0;
                 float z = 0.0;
                 vec3 p;
                 float D, D2;
                 float transmission = 1.0;
 
-                // Raymarching Loop
                 for(float i=0.; i<65.; i++) {
                     p = z * rd + cam_pos;
                     D = length(p-P) - radius;
                     D2 = length((p-vec3(P.x, -1.0, P.z)) * vec3(1.5, 10.0, 1.5)) - radius;
 
-                    // 바닥 반사 효과 처리
                     if(p.y < -1.0) {
                         p.y = abs(p.y + 1.0) - 1.0;
                         float F0 = 0.15;
@@ -298,45 +274,38 @@
                         transmission = 1.0;
                     }
 
-                    // 공간 왜곡 효과
                     p.y += .8 * sin(p.z*2. + t*2. - d*12.) * .3;
                     vec3 q = p - P;
                     q.xy *= rot(2.5*t - d*14.);
                     for(float j=1.; j<5.; j++) q += triwave((q*j + t*2.)).yzx / j;
                     
                     d = .1 * abs(length(p - P) - radius) + abs(q.z)*.1;
-                    
                     float safeD = max(d, 0.0001);
 
-                    // 발광 효과 누적
                     o += transmission * ( (cos(d/.1 + vec4(1,2,2.5,0)) + 1.) / safeD * z ) 
                        + 2. * (cos(-4.5*t + D/.1 + vec4(1,2,2.5,0)) + 1.) * exp2(-D*D) * z
                        + 10. * (cos(vec4(1,2,2.5,0)) + 1.) * exp2(-abs(D2)) * z;
                     
                     z += min(abs(p.y+1.0)*.4+.03, d);
                     
-                    if(z > 100.) break; // 너무 멀어지면 중단
+                    if(z > 100.) break; 
                 }
 
                 o = o / 1e4;
-                o *= 1. - length(uv * 0.3); // 비네팅 효과
-                o = sqrt(1. - exp(-1.5 * o * o)); // 톤매핑
+                o *= 1. - length(uv * 0.3); 
+                o = sqrt(1. - exp(-1.5 * o * o)); 
 
-                // [4. Composition (합성)]
-                // 포탈 안쪽 영역 마스킹 계산
+                // [4. Composition]
                 float mask = 0.0;
-                vec3 portalCenter = vec3(0, baseHeight, 2.5); // P와 동일한 높이 사용
-                // Ray-Plane 교차점 계산으로 마스크 생성
+                vec3 portalCenter = vec3(0, baseHeight, 2.5); 
                 float planeDist = (portalCenter.z - cam_pos.z) / rd.z;
                 
                 if (planeDist > 0.0) {
                     vec3 hitPos = cam_pos + rd * planeDist;
                     float distFromCenter = length(hitPos.xy - portalCenter.xy);
-                    // 부드러운 경계선 마스크
                     mask = smoothstep(radius, radius - 0.2, distFromCenter);
                 }
                 
-                // 포탈 이펙트(o)와 마스킹된 비디오(bgVideo * mask) 합성
                 gl_FragColor = o + (bgVideo * mask);
             }
         `;
@@ -358,14 +327,10 @@
         scene.add(plane);
 
         // --- Interaction (Mouse & Touch) ---
-        const targetMouse = new THREE.Vector2();
-
         function updateMouseCoords(clientX, clientY) {
-            // 화면 좌표를 -1 ~ 1 사이의 정규화된 좌표로 변환
             const x = (clientX / window.innerWidth) * 2 - 1;
             const y = -(clientY / window.innerHeight) * 2 + 1; 
             
-            // GSAP를 사용하여 부드럽게 값 변경
             gsap.to(uniforms.iMouse.value, {
                 x: x,
                 y: y,
@@ -374,68 +339,58 @@
             });
         }
 
-        // 마우스 이동 이벤트
         document.addEventListener('mousemove', (e) => {
             updateMouseCoords(e.clientX, e.clientY);
         });
 
-        // 모바일 터치 이동 이벤트
         document.addEventListener('touchmove', (e) => {
             if (e.touches.length > 0) {
                 updateMouseCoords(e.touches[0].clientX, e.touches[0].clientY);
             }
         }, { passive: false });
 
-        // --- Resize Handler (모바일 감지 로직 추가) ---
+        // --- Resize Handler ---
         function updateSize() {
             const width = window.innerWidth;
             const height = window.innerHeight;
             renderer.setSize(width, height);
-            uniforms.iResolution.value.set(width, height, 1);
-
-            // 모바일인지 확인 (너비가 768px 미만이거나, 세로가 더 긴 경우)
-            const isMobile = width < 768 || width < height;
             
-            // 모바일 플래그 유니폼 업데이트
-            uniforms.uIsMobile.value = isMobile ? 1.0 : 0.0;
+            // 💡 중요: 기기 픽셀 비율을 곱하여 쉐이더 해상도 업데이트 (어긋남 방지)
+            uniforms.iResolution.value.set(width * pixelRatio, height * pixelRatio, 1);
 
-            // 전체 콘텐츠 스케일은 기존 유지 (모바일에서 0.8)
-            uniforms.uContentScale.value = isMobile ? 0.8 : 1.0; 
+            const isMobile = width < 768 || height > width;
+            uniforms.uIsMobile.value = isMobile ? 1.0 : 0.0;
+            uniforms.uContentScale.value = isMobile ? 0.7 : 1.0; 
         }
 
         window.addEventListener('resize', updateSize);
-        updateSize(); // 초기 실행
+        updateSize(); 
 
         // --- Buttons & Transitions ---
         const openBtn = document.getElementById('openBtn');
         const closeBtn = document.getElementById('closeBtn');
 
         openBtn.addEventListener('click', () => {
-            resumeAudio(); // 오디오 시작 확인
+            resumeAudio(); 
 
-            // Open 버튼 숨기기
             gsap.to(openBtn, {
                 opacity: 0,
                 duration: 0.3,
                 onComplete: () => { openBtn.style.pointerEvents = 'none'; }
             });
 
-            // 비디오 재생
             video.play().catch(e => console.warn("Video play blocked:", e));
 
-            // 오디오 필터 열기 (Lowpass 해제, 볼륨 업)
             if(filterNode && gainNode) {
                 gsap.to(filterNode.frequency, { value: 22000, duration: 2.0, ease: "power2.out" });
                 gsap.to(gainNode.gain, { value: 1.0, duration: 2.0, ease: "power2.out" });
             }
 
-            // 포탈 열기 애니메이션
             gsap.to(uniforms.u_openProgress, {
                 value: 1.0,
                 duration: 2.0,
                 ease: "power2.out",
                 onComplete: () => {
-                    // Close 버튼 보이기
                     closeBtn.style.pointerEvents = 'auto';
                     gsap.to(closeBtn, {
                         opacity: 1,
@@ -446,26 +401,22 @@
         });
 
         closeBtn.addEventListener('click', () => {
-            // Close 버튼 숨기기
             gsap.to(closeBtn, {
                 opacity: 0,
                 duration: 0.3,
                 onComplete: () => { closeBtn.style.pointerEvents = 'none'; }
             });
 
-            // 오디오 필터 닫기 (Lowpass 적용, 볼륨 다운)
             if(filterNode && gainNode) {
                 gsap.to(filterNode.frequency, { value: 400, duration: 1.5, ease: "power2.out" });
                 gsap.to(gainNode.gain, { value: 0.2, duration: 1.5, ease: "power2.out" });
             }
 
-            // 포탈 닫기 애니메이션
             gsap.to(uniforms.u_openProgress, {
                 value: 0.0,
                 duration: 1.5,
                 ease: "power2.out",
                 onComplete: () => {
-                    // Open 버튼 보이기 및 비디오 정지
                     openBtn.style.pointerEvents = 'auto';
                     gsap.to(openBtn, {
                         opacity: 1,
@@ -479,7 +430,6 @@
         // --- Animation Loop ---
         function animate(time) {
             requestAnimationFrame(animate);
-            // 비디오 텍스처 업데이트 (새로운 프레임이 있을 때만)
             if (video.readyState >= video.HAVE_CURRENT_DATA) {
                 videoTexture.needsUpdate = true;
             }
